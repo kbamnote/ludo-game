@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native builds
+/android
+/ios
+*.apk
+*.aab
+*.ipa
+*.keystore
+!debug.keystore
+
+# Metro
+.metro-health-check*
+.metro-cache/
+
+# Environment / secrets  — never commit these
+.env
+.env.*
+!.env.example
+google-services.json
+GoogleService-Info.plist
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+
+# Testing
+coverage/
+
+# Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+
+# Design reference
+# PNG masters are 38 MB of source art kept only for future re-processing.
+# The shipped WebP copies ARE committed. Re-fetch masters with:
+#   bash design-reference/assets/fetch-assets.sh
+design-reference/assets/raw/

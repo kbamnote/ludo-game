@@ -1,0 +1,524 @@
+# LUDO AFTER DARK (Mobile) — Project Status
+
+**Phase:** 0 — Project Audit (complete, awaiting approval for Phase 1)
+**Audit date:** 2026-11-13 · **Revised:** 2026-11-13 for the two-repository split
+**Repository:** `ludo-mobile` — `D:\Print World\ludo-game\ludo-mobile`
+**Sibling repository:** `ludo-server` — see `../ludo-server/PROJECT_STATUS.md`
+**Design source of truth:** Google Stitch project `16378329217088749782` — *Ludo After Dark Mobile*
+
+> This document covers the **mobile client only**. Backend findings live in the `ludo-server` repo.
+> Workspace-level orientation is in `../README.md`.
+
+---
+
+## 1. Executive summary
+
+The project directory was **completely empty**. There is no existing code, no `package.json`, no Expo
+app, no backend, and no git repository. This is a pure greenfield build — nothing can be broken and
+nothing needs preserving.
+
+Per your instruction, the work is split into **two independent git repositories** —
+`ludo-mobile` and `ludo-server` — under a non-versioned workspace folder. Both are initialised on
+`main`. That split introduces one genuinely new architectural problem, **R11: the Ludo rules engine
+must exist identically on both sides** of a server-authoritative game. It is solved in §7.4, not
+deferred.
+
+The Google Stitch design, by contrast, is **substantial and high quality**: 12 fully designed mobile
+screens, a complete design-token system ("Midnight Arcade Cyber-Ludo"), and 37 bespoke generated
+graphics. All 37 graphics are downloadable and have been pulled into `design-reference/assets/`.
+
+Three findings materially affect planning and need a decision before Phase 1:
+
+| # | Finding | Impact |
+|---|---|---|
+| **R1** | The "3D Gameplay Board" screen is **decorative, not a real Ludo board** — no 15×15 grid, no 52-cell track, no home columns. | The board must be engineered from first principles. Stitch gives us *style*, not *layout*, for the single most important screen. |
+| **R2** | The design system mandates **heavy glassmorphism** (`backdrop-filter: blur(20px)` on nearly every surface), which the brief separately asks us to avoid, and which is expensive on mid-range Android. | Needs an explicit visual-fidelity vs. performance ruling. See §7.1. |
+| **R3** | Stitch uses **Material Symbols Outlined** (~70 glyphs) throughout; the brief specifies **Lucide React Native**. They are not visually interchangeable. | Needs an icon ruling. See §7.2. |
+
+Nothing is blocked. Recommendations are given for all three; Phase 1 can start as soon as they are
+confirmed.
+
+---
+
+## 2. What already exists
+
+### 2.1 In the project directory
+
+**Nothing.** `D:\Print World\ludo-game` contained zero files and zero subdirectories (including
+hidden ones) at the time of audit.
+
+Phase 0 has since created, and only created, non-code scaffolding:
+
+```
+D:\Print World\ludo-game\          workspace folder — deliberately NOT a git repo
+├─ README.md                       program overview, points at both repos
+├─ ludo-mobile/                    ← git repo #1 (this one)
+│  ├─ .gitignore
+│  ├─ PROJECT_STATUS.md            this file
+│  ├─ README.md
+│  ├─ docs/                        ASSET_INVENTORY · SCREEN_MAP · PHASE_1_PLAN
+│  ├─ design-reference/
+│  │  ├─ assets/                   37 WebP (committed) + manifest.tsv + fetch-assets.sh
+│  │  ├─ assets/raw/               37 PNG masters (gitignored — 38 MB, re-fetchable)
+│  │  ├─ screens/                  empty — Stitch HTML re-pulled per screen in Phase 2
+│  │  └─ design-system/            empty — populated in Phase 1
+│  ├─ src/                         empty feature-based skeleton (see §8)
+│  └─ tests/                       empty
+└─ ludo-server/                    ← git repo #2 (see its own PROJECT_STATUS.md)
+```
+
+No source code, no dependencies, and no configuration have been written. No existing work was
+overwritten, because there was none.
+
+### 2.2 Backend
+
+None. No server, no database, no Colyseus room code, no schema. The `ludo-server` repo exists as a
+directory skeleton and documentation only; see `../ludo-server/PROJECT_STATUS.md`.
+
+### 2.3 Git
+
+Both `ludo-mobile` and `ludo-server` are now initialised as **separate repositories on `main`**,
+each with its own `.gitignore`.
+
+The parent folder `D:\Print World\ludo-game` is intentionally **not** a repository — nesting repos
+inside a repo produces confusing submodule behaviour. It is a plain workspace folder holding a
+`README.md` that orients a newcomer towards the two real repos.
+
+Neither repo has a remote yet. Both need one creating before any cross-repo CI can run.
+
+---
+
+## 3. Available Google Stitch designs
+
+All 12 screens are `DESIGN` type, `MOBILE`, authored at 780 px wide (≈390 pt @2x).
+
+| # | Stitch screen | Shell | Height | Maps to route |
+|---|---|---|---|---|
+| 1 | Splash Screen | `mobile_blank` | 1768 | `app/index.jsx` |
+| 2 | Onboarding Experience | `mobile_blank` | 1768 | `app/(onboarding)/[step].jsx` |
+| 3 | Login & Signup | `mobile_blank` | 1768 | `app/(auth)/sign-in.jsx` |
+| 4 | Avatar Customization Studio | `mobile_tab` | 2728 | `app/(tabs)/profile/avatar.jsx` |
+| 5 | Home Dashboard | `mobile_tab` | 2736 | `app/(tabs)/index.jsx` |
+| 6 | Multiplayer Match Lobby | `mobile_tab` | 1912 | `app/(tabs)/play/lobby.jsx` |
+| 7 | 3D Gameplay Board | `mobile_stack` | 1768 | `app/match/[id].jsx` |
+| 8 | Profile & Achievements | `mobile_tab` | 2356 | `app/(tabs)/profile/index.jsx` |
+| 9 | Global Leaderboard | `mobile_tab` | 2728 | `app/(tabs)/leaderboard.jsx` |
+| 10 | Streetwear Store & Battle Pass | `mobile_tab` | 4086 | `app/(tabs)/play/store.jsx` |
+| 11 | Friends & Social Hub | `mobile_tab` | 1904 | `app/(tabs)/friends.jsx` |
+| 12 | Match Results & Victory | `mobile_stack` | 2256 | `app/match/[id]/results.jsx` |
+
+Full per-screen component breakdowns are in [docs/SCREEN_MAP.md](docs/SCREEN_MAP.md).
+
+### 3.1 Required screens with no Stitch design
+
+The brief lists 14 screens. Two have no design:
+
+| Brief screen | Status |
+|---|---|
+| **Settings** | **No Stitch screen exists.** The splash and lobby both link to a settings surface, but it was never designed. |
+| **Signup** (separate) | Partially covered — Stitch screen 3 is a *tabbed* Login/Signup ("ENTER SYNDICATE" / "NEW RUNNER") sharing one phone-OTP form. A dedicated signup screen does not exist, and arguably is not needed. |
+
+Additionally, the onboarding screen's own step indicator reads **"PHASE 01 / 03"** — but only
+phase 1 was designed. **Onboarding steps 2 and 3 are missing.**
+
+### 3.2 Design system
+
+One design system is attached: **"Midnight Arcade Cyber-Ludo"**, complete and machine-readable.
+
+**Core tokens** (these port 1:1 into `src/theme/theme.js`):
+
+- Surfaces: `#0A0B10` void → `#0d0e13` → `#121318` → `#1a1b21` → `#1e1f25` → `#292a2f` → `#34343a`
+- Four faction accents: Lime `#00FF87`, Cyan `#00F0FF`, Hot Pink `#FF007A`, Violet `#8B5CF6`
+- Type: **Syne** (600/700/800) for display + headlines, **Plus Jakarta Sans** (400/500/700/800) for body + labels
+- Radii: 0.25 / 0.5 / 0.75 / 1 / 1.5 rem + pill
+- Spacing: 4 px base — `space-xs` 0.25rem … `space-xl` 1.75rem, `gutter` 0.75rem, `margin` 1rem
+
+**Inconsistency to resolve:** the written design system declares the four factions as
+Lime / Cyan / **Hot Pink `#FF007A`** / **Violet `#8B5CF6`**, but the gameplay and lobby screens as
+actually generated use Lime / Cyan / **pale pink `#ffb1c3`** / **salmon `#ffb4ab`** (the Material
+`tertiary-fixed-dim` and `error` roles). The vivid brand palette is the better choice and is what
+the brief asks for — **recommend following the written design system, not the generated screens**,
+for faction colours.
+
+---
+
+## 4. Available graphics
+
+**37 unique images**, all generated 3D/illustrated artwork, all successfully downloaded.
+
+| Category | Count | Notes |
+|---|---|---|
+| Brand logo | 1 | Isometric neon dice + "LUDO AFTER DARK" lockup |
+| Environment / scene art | 3 | Onboarding arcade, auth club banner, home alleyway |
+| Character avatars | 29 | Player portraits used across home, lobby, gameplay, friends, leaderboard, profile |
+| Store product art | 4 | Phantom wings, liquid dice, Shibuya board skin, bass emote |
+
+**Technical characteristics (verified, not assumed):**
+
+- Native resolution caps at **1024 × 1024**. Requesting `=s2048` still returns 1024.
+- Served as JPEG by default; `=w1024-rp` gives PNG and `=w1024-rw` gives WebP (~35 % smaller).
+- **The PNGs are 8-bit RGB with no alpha channel.** Every asset — logo and characters included — is
+  an opaque square with the background baked in.
+- The baked background is near-black but **not** the app's `#0A0B10`/`#121318`, so naively dropping
+  the logo onto a screen leaves a visible square plate.
+
+Stored at `design-reference/assets/<name>.webp` (app-ready) and
+`design-reference/assets/raw/<name>.png` (archival master), with
+`design-reference/assets/manifest.tsv` mapping every file to its screen usage and source URL.
+`fetch-assets.sh` re-fetches idempotently.
+
+Full table in [docs/ASSET_INVENTORY.md](docs/ASSET_INVENTORY.md).
+
+---
+
+## 5. Missing graphics and assets
+
+Reported rather than silently substituted, per the brief.
+
+### 5.1 Blocking for Phase 2 (UI)
+
+| Missing | Where it bites | Current Stitch placeholder |
+|---|---|---|
+| **Transparent character cutouts** | Characters must sit on the board, in glowing rings, and over scene art. Opaque squares cannot. | n/a — all art is opaque |
+| **App icon / adaptive icon / splash image** | Required by `app.json` for any Android build. | Logo exists but opaque, square, no maskable safe-area variant |
+| **Avatar-studio cosmetic thumbnails** (4+) | Cosmetics grid on screen 4 | Material Symbols glyphs: `dry_cleaning`, `smart_toy`, `content_cut`, `blur_on` |
+| **Achievement / badge art** (24 implied, "18/24 unlocked") | Profile badges rail | Material Symbols: `casino`, `track_changes`, `magic_button`, `local_fire_department` |
+| **Emote / sticker art** | Taunt bar, soundboard, post-game reactions, chat | Literal emoji: 🔥 💀 😭 🤝 ⚔️ 🎲 💥 ⚡ 🤡 |
+| **Onboarding phases 2 & 3** | Carousel advertises 3 steps | Only step 1 designed |
+| **Settings screen design** | Brief requires it | Not designed |
+
+> On the emoji: the brief says never to substitute emoji for illustrations. Here the *Stitch design
+> itself* specifies emoji. These are placeholders for a sticker set that does not exist. Flagging
+> rather than shipping emoji or inventing art.
+
+### 5.2 Blocking for Phase 4 (game engine)
+
+| Missing | Notes |
+|---|---|
+| **Ludo board artwork** | No board asset and no board layout in any design. See R1. |
+| **Dice face art / dice skins** | Dice are drawn with CSS dots. The store sells "Obsidian Liquid Dice" with a *marketing* image, but no in-game dice sprite. |
+| **Token / pawn art** | Rendered as the `person_pin_circle` glyph. The core product promise — *your face is the token* — has no token frame or chassis art. |
+| **Board theme variants** | Store sells "Shibuya Underground" board skin; only the marketing image exists. |
+| **Victory / defeat animations** | No Lottie, Rive, or sprite sheets. |
+
+### 5.3 Non-art assets
+
+| Missing | Recommendation |
+|---|---|
+| **Audio** — zero files. Design references dice SFX, "Bass Boost SFX", "Lo-Fi Rain Audio", a soundboard, voice chat. | Source or commission in Phase 4. Not blocking Phases 1–3. |
+| **Fonts** — Syne, Plus Jakarta Sans not bundled. | Both are free (OFL) on Google Fonts. Bundle via `expo-font` in Phase 1. **Not a real gap.** |
+| **Icon font** — Material Symbols Outlined, ~70 glyphs. | See R3 / §7.2. |
+
+---
+
+## 6. Environment and toolchain
+
+| Component | Found | Verdict |
+|---|---|---|
+| Node.js | **v26.13.0** | ⚠️ Too new — see R4 below |
+| npm | 11.20.0 | OK |
+| git | 2.56.1.windows.1 | OK (repo not initialised) |
+| eas-cli | 27.7.2 (global) | ✅ Useful — enables cloud Android builds |
+| **JDK / `java`** | **not installed** | ❌ Blocks local Android builds |
+| **Android SDK / `adb`** | **not installed**, `ANDROID_HOME` unset | ❌ Blocks local emulator + device installs |
+| Disk (D:) | 661 GB free | OK |
+| Platform | Windows 10 Home, PowerShell + Git Bash | OK |
+
+**There is no existing Expo setup to validate** — the question of whether it is "valid" does not
+arise. It will be created in Phase 1.
+
+**R4 — Node 26 is ahead of Expo's supported range.** Current Expo SDKs target Node 20/22 LTS.
+Node 26 is untested and routinely breaks Metro and `expo-doctor`. **Strong recommendation: install
+Node 22 LTS via `nvm-windows` and pin it with an `.nvmrc`.** I would not start Phase 1 on Node 26.
+
+**Android build path.** Two options, not mutually exclusive:
+
+- **(A) Local** — install JDK 17 + Android Studio (SDK, platform-tools, an emulator image). ~8 GB,
+  one-time. Gives fast iteration, on-device profiling, and is **required** for the Phase 8
+  performance work, which cannot be done honestly without real devices.
+- **(B) Cloud** — `eas-cli` is already installed; `eas build -p android` produces APKs with no local
+  Android SDK. Day-to-day development runs through **Expo Go** or a dev client on a physical phone
+  over Wi-Fi.
+
+**Recommendation: start with (B)** so Phase 1 is not gated on an 8 GB install, and add (A) before
+Phase 4, when Skia board rendering and frame timing start to matter.
+
+---
+
+## 7. Decisions needed before Phase 1
+
+### 7.1 R2 — Glassmorphism
+
+The design system is explicit: every floating surface is `rgba(26,29,46,0.72)` with
+`backdrop-filter: blur(20px) saturate(180%)` and a 1 px rim highlight. The header, bottom nav, every
+pill, and most cards use it. The brief separately says "avoid unnecessary glassmorphism."
+
+In React Native, `backdrop-filter` has no direct equivalent. `expo-blur`'s `BlurView` is the closest,
+and on mid-range Android each instance costs a real-time GPU readback. Twenty of them on a scrolling
+screen will not hold 60 FPS.
+
+**Recommendation — tiered:**
+- **Real `BlurView`:** at most 2 per screen, on genuinely overlapping chrome only (fixed header, bottom tab bar).
+- **Simulated:** everything else gets an opaque surface token at the blurred colour's perceptual equivalent, plus the 1 px `rgba(255,255,255,0.08)` rim and inset top highlight. At these opacities this is visually near-identical over a dark background and essentially free.
+
+This preserves the design's personality while honouring both the perf target and the brief. Needs
+your sign-off since it is a deliberate, if small, departure from Stitch.
+
+### 7.2 R3 — Icons
+
+Stitch uses ~70 **Material Symbols Outlined** glyphs. Many have no Lucide equivalent
+(`person_pin_circle`, `military_tech`, `workspace_premium`, `stadia_controller`, `dry_cleaning`,
+`magic_button`, `hotel_class`, `graphic_eq`). `@expo/vector-icons`' bundled `MaterialIcons` is the
+*older* icon set and is also missing several (`skull`, `crown`, `swords`, `apparel`).
+
+**Recommendation:** bundle the **Material Symbols Outlined** variable font locally and expose it
+through a single `<Icon name="casino" />` component built with `createIconSet` and the official
+codepoint map. This reproduces the design exactly, is one font file, and keeps icon usage centralised.
+Keep `lucide-react-native` installed for anything Material Symbols lacks.
+
+This is a documented deviation from the brief's "Lucide React Native" line, made to satisfy the
+higher-priority rule that Stitch is the source of truth. Say the word if you would rather map
+everything to Lucide and accept the visual drift.
+
+### 7.3 R1 — The board
+
+The gameplay screen shows four corner houses, a central "NEXUS" hub, and about a dozen loose path
+tiles arranged for looks. A real Ludo board needs a 15×15 grid, a 52-cell shared track, four 5-cell
+home columns, 8 safe cells, and 16 token positions. **None of that geometry exists in the design.**
+
+**Recommendation:** treat screen 7 as a *style guide* (HUD layout, voice strip, dice launcher, emote
+bar, house treatment, glow language) and derive the board geometry mathematically in
+`src/game/board/`, rendered with Skia. The look is preserved; the layout is engineered. This is
+already how the brief wants rules and rendering separated, so it costs nothing architecturally — but
+it means the board is **built, not traced**, and I want that understood up front rather than
+discovered in Phase 4.
+
+### 7.4 R11 — Where the game engine lives (new, caused by the repo split)
+
+This is the one real cost of separating the repos, and it needs settling now rather than in Phase 5.
+
+The brief requires the **server to be authoritative** for dice and token movement, and to validate
+every move server-side. But the mobile client also needs the same rules in order to highlight legal
+moves, animate optimistically, and run practice games against CPU. So the identical Ludo rule set
+must execute in both repos.
+
+If the two copies ever drift, the client proposes moves the server rejects — the worst category of
+multiplayer bug, and one that only shows up under real play.
+
+**Options considered**
+
+| | Approach | Verdict |
+|---|---|---|
+| A | Engine as a package **inside `ludo-server`**, published as `@ludo/engine`, consumed by mobile | ✅ **Recommended** |
+| B | A third repo, `ludo-engine` | Clean, but you asked for two repos |
+| C | Git submodule shared by both | No registry needed, but submodules are persistent friction |
+| D | Copy the code into both + contract tests | Rejected — drift is a matter of when, not if |
+
+**Recommendation (A).** The scaffold already reflects it: `ludo-server/packages/engine/`. The server
+owns the canonical rules, which is the correct ownership for a server-authoritative game, and it
+keeps the repo count at exactly two.
+
+- Written in **plain JavaScript (ESM) with JSDoc types** — so the JSX mobile app imports it natively
+  with no build step, and a TypeScript backend can still type-check it via `allowJs` + `checkJs`.
+- Zero dependencies. No React Native imports, no Node built-ins. Runs identically in Hermes and Node.
+- Published to a private registry as `@ludo/engine`, pinned by exact version in both repos.
+- During development, mobile consumes it via `file:../ludo-server/packages/engine` or `npm link`,
+  so iteration stays instant; the registry only matters for CI and release.
+- `src/game/` in this repo therefore holds **rendering, animation and input only** — never rules.
+
+**R12, a corollary:** the HTTP and WebSocket contract is now also cross-repo. The server repo owns
+`docs/API_CONTRACT.md` plus a generated OpenAPI spec and the Colyseus schema; this repo consumes
+them. Mobile must never hand-roll a type that the server already defines.
+
+---
+
+## 8. Recommended project structure
+
+### 8.1 Workspace
+
+```
+D:\Print World\ludo-game\          workspace folder — NOT a git repo
+├─ README.md
+├─ ludo-mobile/                    git repo #1 — Expo app
+└─ ludo-server/                    git repo #2 — Node + Colyseus + @ludo/engine
+```
+
+### 8.2 `ludo-mobile` (this repo)
+
+Matches the brief, with additions marked ➕ and the engine removed per §7.4.
+
+```
+ludo-mobile/
+├─ app/                          ➕ Expo Router root (routes only — thin re-exports)
+├─ src/
+│  ├─ components/
+│  │  ├─ common/  buttons/  cards/  animations/
+│  │  └─ icons/                  ➕ Material Symbols wrapper
+│  ├─ features/
+│  │  ├─ onboarding/  authentication/  home/  avatar/  gameplay/
+│  │  ├─ multiplayer/  friends/  leaderboard/  profile/  store/
+│  │  └─ settings/               ➕ (brief requires the screen)
+│  ├─ game/                      ⚠ PRESENTATION ONLY — rules live in @ludo/engine
+│  │  ├─ board/                  Skia rendering of the geometry the engine exposes
+│  │  ├─ dice/                   dice visuals + roll animation
+│  │  ├─ tokens/                 token sprites, movement tweens
+│  │  └─ animations/             capture, victory, turn transitions
+│  ├─ services/                  api · auth · avatar-provider · colyseus · storage
+│  ├─ store/                     Zustand slices
+│  ├─ hooks/  theme/  utils/
+│  └─ assets/  images/  fonts/  audio/
+├─ tests/                        components/  integration/
+├─ design-reference/             screens/  assets/  design-system/
+├─ docs/
+├─ app.json  babel.config.js  tailwind.config.js  metro.config.js
+├─ .gitignore  PROJECT_STATUS.md  README.md
+```
+
+**Change from the original plan:** `src/game/engine/` and `src/game/rules/` are **gone**. Rules now
+come from `@ludo/engine`. This strengthens rather than weakens the brief's "keep game logic
+independent of UI" rule — the logic is now in a different repository and physically cannot import a
+component.
+
+**Note on `app/`:** Expo Router requires its route directory at the project root by default. Using
+`src/app` needs `"main": "expo-router/entry"` plus a Metro alias. Recommend root-level `app/`
+holding only thin route files that re-export screens from `src/features/*`, keeping the feature
+architecture intact.
+
+### 8.3 `ludo-server`
+
+Summarised here; the authoritative version is `../ludo-server/PROJECT_STATUS.md`.
+
+```
+ludo-server/
+├─ src/
+│  ├─ modules/        auth users avatars friends matches leaderboard store progression moderation
+│  ├─ realtime/       rooms/ schema/ matchmaking/        ← Colyseus
+│  ├─ services/       storage/ avatar-provider/
+│  ├─ common/         guards/ filters/ pipes/
+│  ├─ config/  database/  utils/
+├─ packages/
+│  └─ engine/         ← @ludo/engine — the shared, authoritative Ludo rules
+├─ test/  docs/
+```
+
+---
+
+## 9. Recommended dependencies
+
+Pinned exactly at Phase 1 against the chosen Expo SDK; versions below are deliberately omitted
+because the SDK dictates them.
+
+**Core:** `expo`, `expo-router`, `react`, `react-native`, `react-native-screens`,
+`react-native-safe-area-context`
+
+**Styling:** `nativewind`, `tailwindcss`, `react-native-reanimated`, `react-native-gesture-handler`
+
+**Rendering:** `@shopify/react-native-skia`, `expo-linear-gradient`, `expo-blur`, `expo-image`
+(➕ — needed for disk caching and `contentFit`; plain `<Image>` is not adequate here)
+
+**State / data:** `zustand`, `@tanstack/react-query`, `react-hook-form`,
+`@react-native-async-storage/async-storage`, `expo-secure-store` (➕ — tokens must not go in AsyncStorage)
+
+**Device:** `expo-font`, `expo-splash-screen`, `expo-haptics`, `expo-image-picker`,
+`expo-image-manipulator` (➕ — crop), `expo-av`, `expo-status-bar`
+
+**Icons:** `@expo/vector-icons`, `lucide-react-native`, `react-native-svg`
+
+**Game rules:** `@ludo/engine` — from the `ludo-server` repo (§7.4). Added at Phase 4, consumed via
+`file:../ludo-server/packages/engine` during development and by exact version in CI.
+
+**Multiplayer (Phase 5):** `colyseus.js`
+
+**Dev:** `jest`, `jest-expo`, `@testing-library/react-native`, `eslint`, `eslint-config-expo`,
+`prettier`
+
+Server dependencies are no longer listed here — they belong to the `ludo-server` repo and are
+documented in `../ludo-server/PROJECT_STATUS.md`.
+
+---
+
+## 10. Development roadmap
+
+| Phase | Scope | Gate |
+|---|---|---|
+| Phase | Repo(s) | Scope | Gate |
+|---|---|---|---|
+| **0** | both | Audit, asset inventory, structure, roadmap, repo split | ◀ **you are here** — awaiting approval |
+| **1** | mobile | Expo + Router + NativeWind + theme.js + primitives + nav shell | App launches on Android, tab nav works, tokens applied |
+| **2** | mobile | All 12 Stitch screens + Settings; sample data, loading/empty states | Visual match reviewed screen by screen |
+| **3** | **both** | Avatar system — client capture/crop/preview; **server** does provider calls, storage, deletion | End-to-end against a stub provider; no keys in the app |
+| **4** | **both** | `@ludo/engine` in server repo + Skia board, Reanimated tokens/dice, haptics in mobile | Engine unit tests green; full local 4-player game playable |
+| **5** | **both** | Colyseus rooms, auth, matchmaking, server-authoritative dice/moves, reconnect | 4 real clients; disconnect/reconnect verified |
+| **6** | **both** | Friends, parties, reactions, chat + moderation, LiveKit voice, spectate, report/block | Safety controls demonstrable |
+| **7** | **both** | XP, levels, challenges, achievements, leaderboards, coins, cosmetics, battle pass | No pay-to-win; purchase validation server-side |
+| **8** | **both** | Device profiling, optimisation, crash reporting, analytics, release build | Measured FPS/memory on low/mid/high Android — no unverified claims |
+
+**Impact of the split on sequencing.** Phases 0–2 are mobile-only and unaffected. From Phase 3 on,
+every phase touches both repos, so each needs a coordinated pair of commits and a documented
+contract change. Phase 4 now *starts* in `ludo-server` (build and test `@ludo/engine` headlessly,
+where it is fastest to iterate) and only then moves to mobile for rendering.
+
+Phases 3 and 4 remain independent of each other and could run in parallel.
+
+---
+
+## 11. Risk register
+
+| ID | Risk | Severity | Mitigation |
+|---|---|---|---|
+| R1 | Gameplay board is decorative; real geometry must be engineered | **High** | Derive board maths in `src/game/board/`; Stitch screen 7 as style reference only |
+| R2 | Pervasive glassmorphism vs. 60 FPS on mid-range Android | **High** | Tiered approach (§7.1) — real blur ≤2/screen, simulated elsewhere |
+| R3 | Material Symbols vs. the brief's Lucide | Medium | Bundle Material Symbols font + `<Icon>` wrapper; Lucide as fallback |
+| R4 | Node 26 unsupported by Expo tooling | **High** | Install Node 22 LTS + `.nvmrc` before Phase 1 |
+| R5 | No JDK / Android SDK — cannot build or profile locally | Medium | EAS Build + Expo Go now; install Android Studio before Phase 4 |
+| R6 | All character art is opaque with no alpha; tokens need cutouts | **High** | Decide: commission alpha art, run background removal, or render tokens as Skia rings masking a circular crop (cheapest, looks intentional) |
+| R7 | Avatar AI provider unchosen; cost + latency + content-safety unknown | Medium | Phase 3 builds a provider-agnostic interface; all keys server-side only |
+| R8 | Stitch URLs are CDN-hosted and may expire | Low | **Already mitigated** — all 37 assets pulled locally with a re-runnable fetch script |
+| R9 | Design mixes real-money framing ("entry fee", "winner takes", "$19.99") with "wager tier strictly simulated" | Medium | Needs a product/legal ruling before Phase 7. Real-money wagering changes store-listing and jurisdiction requirements substantially. |
+| R10 | Voice chat (LiveKit) needs a dev client, not Expo Go | Low | Expected; plan a dev-client build at Phase 6 |
+| R11 | **Two repos → the Ludo rules must exist identically on client and server; drift causes rejected-move desyncs** | **High** | Single `@ludo/engine` package owned by the server repo, consumed by mobile (§7.4). Never reimplement rules in this repo. |
+| R12 | API + Colyseus schema contract now spans repos and can drift | Medium | Server repo owns `docs/API_CONTRACT.md` + generated OpenAPI + Colyseus schema; mobile consumes, never redefines |
+| R13 | Two repos must be versioned and released in step from Phase 3 onward | Medium | Paired commits referencing each other's SHA; pin `@ludo/engine` by exact version; add a cross-repo contract test in CI |
+| R14 | No git remotes configured on either repo | Low | Create both remotes before Phase 1 ends so work is backed up and reviewable |
+
+---
+
+## 12. Phase 1 plan
+
+See [docs/PHASE_1_PLAN.md](docs/PHASE_1_PLAN.md) for the full file-by-file breakdown.
+
+Summary: initialise git and the Expo app on Node 22, wire Expo Router with the `(tabs)` shell the
+Stitch screens imply (Home · Friends · Play FAB · Rank · Profile), port the Stitch design tokens
+verbatim into `src/theme/theme.js` and `tailwind.config.js`, bundle Syne + Plus Jakarta Sans and the
+icon font, build the ~12 primitives every screen reuses (NeonButton, GlassSurface, StatPill,
+CurrencyChip, SectionHeader, Avatar, ScreenHeader, TabBar, Loading, Empty, ErrorBoundary,
+ProgressBar), stand up Zustand + TanStack Query providers, and confirm the app boots on Android.
+
+No screen content is built in Phase 1 — that is Phase 2.
+
+---
+
+## 13. Outstanding questions for you
+
+**Gate Phase 1 (I need these to start):**
+
+1. **Glassmorphism** — approve the tiered approach in §7.1?
+2. **Icons** — bundle Material Symbols (design-accurate), or force Lucide (brief-accurate)?
+3. **Node** — may I install Node 22 LTS via nvm-windows, or is Node 26 fixed on this machine?
+4. **Engine home** (§7.4) — approve `@ludo/engine` living in the `ludo-server` repo, or would you
+   rather have a third `ludo-engine` repo?
+
+**Can be answered as we reach them:**
+
+5. **Android** — EAS-only for now, or install JDK 17 + Android Studio up front?
+6. **Backend language** — the brief says prefer JSX over TypeScript, but that was stated under
+   *Mobile*. NestJS is TypeScript-first and server-authoritative validation benefits from types.
+   Recommend **TS for `ludo-server`, JSX for `ludo-mobile`, and plain JS + JSDoc for the shared
+   engine** so both can consume it. Confirm?
+7. **Git remotes** — where should the two repos be hosted, and under what names?
+8. **Missing art** (§5) — commission, AI-generate, or build Phase 2 with explicit visible
+   placeholders that are tracked and swapped later?
+9. **Transparent cutouts** (R6) — which route for player tokens?
+10. **Wagering** (R9) — is in-game currency purely virtual, or is real money in scope?
+11. **Settings + onboarding 2–3** — generate matching Stitch screens for the gaps, or design them
+    in-code against the existing token system?
