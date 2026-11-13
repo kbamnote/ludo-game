@@ -1,7 +1,8 @@
 # LUDO AFTER DARK (Mobile) — Project Status
 
-**Phase:** 0 — Project Audit (complete, awaiting approval for Phase 1)
+**Phase:** 1 — Application Foundation (complete, awaiting approval for Phase 2)
 **Audit date:** 2026-11-13 · **Revised:** 2026-11-13 for the two-repository split
+**Phase 1 completed:** 2026-11-13
 **Repository:** `ludo-mobile` — `D:\Print World\ludo-game\ludo-mobile`
 **Sibling repository:** `ludo-server` — see `../ludo-server/PROJECT_STATUS.md`
 **Design source of truth:** Google Stitch project `16378329217088749782` — *Ludo After Dark Mobile*
@@ -469,7 +470,8 @@ Phases 3 and 4 remain independent of each other and could run in parallel.
 | R1 | Gameplay board is decorative; real geometry must be engineered | **High** | Derive board maths in `src/game/board/`; Stitch screen 7 as style reference only |
 | R2 | Pervasive glassmorphism vs. 60 FPS on mid-range Android | **High** | Tiered approach (§7.1) — real blur ≤2/screen, simulated elsewhere |
 | R3 | Material Symbols vs. the brief's Lucide | Medium | Bundle Material Symbols font + `<Icon>` wrapper; Lucide as fallback |
-| R4 | Node 26 unsupported by Expo tooling | **High** | Install Node 22 LTS + `.nvmrc` before Phase 1 |
+| R4 | ~~Node 26 unsupported by Expo tooling~~ — **withdrawn, this was wrong** | — | Expo SDK 58 declares `node: "^22.13.0 \|\| ^24.3.0 \|\| ^26.0.0 \|\| >=27.0.0"` and Metro `>= 26.0.0`. Node 26 is explicitly supported, and the whole Phase 1 build runs on it. No version manager needed. |
+| R15 | **Jest cannot run: `VCRUNTIME140_1.dll` missing from Windows** | **High** | Install the MS Visual C++ 2015-2022 Redistributable (x64). Details in §14. Blocks all testing from Phase 2 onward. |
 | R5 | No JDK / Android SDK — cannot build or profile locally | Medium | EAS Build + Expo Go now; install Android Studio before Phase 4 |
 | R6 | All character art is opaque with no alpha; tokens need cutouts | **High** | Decide: commission alpha art, run background removal, or render tokens as Skia rings masking a circular crop (cheapest, looks intentional) |
 | R7 | Avatar AI provider unchosen; cost + latency + content-safety unknown | Medium | Phase 3 builds a provider-agnostic interface; all keys server-side only |
@@ -495,6 +497,86 @@ CurrencyChip, SectionHeader, Avatar, ScreenHeader, TabBar, Loading, Empty, Error
 ProgressBar), stand up Zustand + TanStack Query providers, and confirm the app boots on Android.
 
 No screen content is built in Phase 1 — that is Phase 2.
+
+---
+
+## 14. Phase 1 result
+
+**Status: complete**, on Expo SDK 58 / React Native 0.88.1 / React 19.3.0.
+
+### Verified
+
+| Check | Result |
+|---|---|
+| `npx expo-doctor` | ✅ **20/20 checks pass** |
+| `npx eslint .` | ✅ **0 errors, 0 warnings** |
+| `npx expo export --platform android` | ✅ **1,849 modules → 4.0 MB Hermes bundle**, all 37 graphics + fonts included |
+| `npx jest` | ❌ **blocked by the environment** — see below |
+| Launch on a physical Android device | ⚠️ **not verified** — no device or emulator available here |
+
+Two exit criteria I set in the Phase 1 plan are therefore **not** met, and I am not
+going to claim otherwise: the test suite has never executed, and nothing has run on real
+hardware. The bundle compiling proves every import resolves and every file parses; it does
+not prove the UI renders correctly.
+
+### R15 — Jest is blocked by a missing Windows DLL
+
+`VCRUNTIME140_1.dll` is absent from `Windows\System32`. The chain:
+
+1. `jest-resolve` 30.x resolves modules through `unrs-resolver`, a native Rust addon.
+2. Its Windows binary (`@unrs/resolver-binding-win32-x64-msvc`) is installed and intact,
+   but needs `VCRUNTIME140_1.dll` from the MS Visual C++ 2015-2022 Redistributable.
+3. The DLL is missing, so `require()` of the `.node` binary throws
+   *"The specified module could not be found"*.
+4. `unrs-resolver` then reports *"Cannot find native binding"*.
+5. `jest-resolve.findNodeModule()` returns `null` for **every** path — including Jest's own
+   `jest-circus` runner — so Jest aborts during config validation.
+
+Ruled out by testing, not assumption: reproduces with **zero config** on a trivial test, under
+**both Node 26 and Node 22**, and **inside and outside** a path containing a space.
+`fs.statSync()` confirms the files Jest reports as "not found" exist.
+
+**Fix (one command, then `npm test` works):**
+
+```bash
+winget install --id Microsoft.VCRedist.2015+.x64
+```
+
+`jest.config.js` is already correct and needs no change.
+
+### Built
+
+- **Tokens** — `src/theme/` (colors, typography, spacing, effects) + a 1:1 `tailwind.config.js`
+  mirror, so Stitch class names carry straight over into Phase 2
+- **Icons** — Material Symbols subset to the 98 glyphs the design uses: **10.5 MB → 220 KB**
+  (97.9% smaller), with a build that fails loudly on an unknown glyph name
+- **Fonts** — Syne + Plus Jakarta Sans via `@expo-google-fonts`, held behind the splash gate
+- **Primitives** — Text, GlassSurface, AmbientGlow, NeonButton, IconButton, StatPill,
+  CurrencyChip, Avatar, AvatarStack, SectionHeader, ProgressBar, SegmentedTabs, WaveformBars,
+  CountdownTimer, Screen, Loading/Empty/Error/Skeleton, ErrorBoundary, AppHeader, AppTabBar
+- **Navigation** — Expo Router with the five-tab shell and raised Play FAB
+- **State** — Zustand (auth/user/settings) + TanStack Query, tokens in `expo-secure-store`
+- **Assets** — all 37 graphics registered and bundling
+- **Dev gallery** at `/_dev` — every primitive on one screen
+
+### Decisions taken, as approved
+
+- **Glassmorphism** — tiered. Real `BlurView` only on the header and tab bar; everything else
+  uses perceptually-matched opaque surfaces. `GlassSurface` warns in dev past 2 real blurs.
+- **Icons** — bundled Material Symbols over Lucide, since Stitch is the source of truth.
+- **Engine** — no rules in this repo. `src/game/engine/` and `src/game/rules/` were deleted;
+  `src/game/` is presentation only.
+
+### Known issues carried into Phase 2
+
+| Issue | Note |
+|---|---|
+| Jest blocked (R15) | One `winget` command away |
+| Not run on a device | Needs a phone, emulator, or an EAS dev-client build |
+| Launcher icons are placeholders | The opaque 1024px logo stands in; a maskable/transparent set is still outstanding (R6) |
+| `react-hooks/immutability` disabled | False positive on every Reanimated `sharedValue.value =` write; justified in `eslint.config.js` |
+| `import/namespace` off for `app/_layout.jsx` | `expo-splash-screen` re-exports extensionlessly; only a bundler resolves it |
+| `D:\jest-control` left behind | A throwaway diagnostic folder I could not delete (removal of top-level dirs is blocked). Safe to delete. |
 
 ---
 

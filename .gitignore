@@ -23,6 +23,13 @@ expo-env.d.ts
 .metro-health-check*
 .metro-cache/
 
+# Export output
+.expo-export/
+
+# Full Material Symbols font (10.7 MB) — only the 220 KB subset is committed.
+# Re-fetch with: bash scripts/fetch-icon-font.sh && npm run build:icons
+design-reference/fonts/
+
 # Environment / secrets  — never commit these
 .env
 .env.*
