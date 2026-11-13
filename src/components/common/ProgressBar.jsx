@@ -49,6 +49,10 @@ export function ProgressBar({
 
   return (
     <View
+      // `accessible` is required as well as the role: without it the element is
+      // not exposed as a single unit, so TalkBack skips it entirely (and
+      // RNTL's getByRole cannot find it either).
+      accessible
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: Math.round(clamped * 100) }}
       style={[

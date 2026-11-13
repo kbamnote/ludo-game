@@ -471,7 +471,7 @@ Phases 3 and 4 remain independent of each other and could run in parallel.
 | R2 | Pervasive glassmorphism vs. 60 FPS on mid-range Android | **High** | Tiered approach (§7.1) — real blur ≤2/screen, simulated elsewhere |
 | R3 | Material Symbols vs. the brief's Lucide | Medium | Bundle Material Symbols font + `<Icon>` wrapper; Lucide as fallback |
 | R4 | ~~Node 26 unsupported by Expo tooling~~ — **withdrawn, this was wrong** | — | Expo SDK 58 declares `node: "^22.13.0 \|\| ^24.3.0 \|\| ^26.0.0 \|\| >=27.0.0"` and Metro `>= 26.0.0`. Node 26 is explicitly supported, and the whole Phase 1 build runs on it. No version manager needed. |
-| R15 | **Jest cannot run: `VCRUNTIME140_1.dll` missing from Windows** | **High** | Install the MS Visual C++ 2015-2022 Redistributable (x64). Details in §14. Blocks all testing from Phase 2 onward. |
+| R15 | ~~Jest cannot run: `VCRUNTIME140_1.dll` missing~~ — **RESOLVED** | — | MS Visual C++ 2015-2022 Redistributable x64 installed (v14.52.37029.0). Jest runs; 25/25 tests pass. Diagnosis in §14. |
 | R5 | No JDK / Android SDK — cannot build or profile locally | Medium | EAS Build + Expo Go now; install Android Studio before Phase 4 |
 | R6 | All character art is opaque with no alpha; tokens need cutouts | **High** | Decide: commission alpha art, run background removal, or render tokens as Skia rings masking a circular crop (cheapest, looks intentional) |
 | R7 | Avatar AI provider unchosen; cost + latency + content-safety unknown | Medium | Phase 3 builds a provider-agnostic interface; all keys server-side only |
@@ -511,17 +511,17 @@ No screen content is built in Phase 1 — that is Phase 2.
 | `npx expo-doctor` | ✅ **20/20 checks pass** |
 | `npx eslint .` | ✅ **0 errors, 0 warnings** |
 | `npx expo export --platform android` | ✅ **1,849 modules → 4.0 MB Hermes bundle**, all 37 graphics + fonts included |
-| `npx jest` | ❌ **blocked by the environment** — see below |
+| `npx jest` | ✅ **25/25 tests pass**, 2 suites (tokens + component smoke) |
 | Launch on a physical Android device | ⚠️ **not verified** — no device or emulator available here |
 
-Two exit criteria I set in the Phase 1 plan are therefore **not** met, and I am not
-going to claim otherwise: the test suite has never executed, and nothing has run on real
-hardware. The bundle compiling proves every import resolves and every file parses; it does
-not prove the UI renders correctly.
+One exit criterion I set in the Phase 1 plan is therefore **not** met, and I am not going
+to claim otherwise: nothing has run on real hardware. The bundle compiling proves every
+import resolves and every file parses, and the tests prove the primitives mount and behave;
+neither proves the UI *looks* right.
 
-### R15 — Jest is blocked by a missing Windows DLL
+### R15 — Jest was blocked by a missing Windows DLL (resolved)
 
-`VCRUNTIME140_1.dll` is absent from `Windows\System32`. The chain:
+`VCRUNTIME140_1.dll` was absent from `Windows\System32`. The chain:
 
 1. `jest-resolve` 30.x resolves modules through `unrs-resolver`, a native Rust addon.
 2. Its Windows binary (`@unrs/resolver-binding-win32-x64-msvc`) is installed and intact,
@@ -536,13 +536,37 @@ Ruled out by testing, not assumption: reproduces with **zero config** on a trivi
 **both Node 26 and Node 22**, and **inside and outside** a path containing a space.
 `fs.statSync()` confirms the files Jest reports as "not found" exist.
 
-**Fix (one command, then `npm test` works):**
+**Fixed by:**
 
 ```bash
 winget install --id Microsoft.VCRedist.2015+.x64
 ```
 
-`jest.config.js` is already correct and needs no change.
+Installed v14.52.37029.0. `findNodeModule()` now returns real paths, and Jest runs.
+`jest.config.js` needed no change for this.
+
+### Two further issues the first real test run exposed
+
+Both were latent — they could only surface once Jest could actually execute.
+
+1. **Reanimated 4 needs a Jest resolver, not a mock.** Importing anything from
+   `react-native-reanimated` threw *"Cannot read properties of undefined (reading
+   `loadUnpackersWithCode`)"*, because `react-native-worklets` has no JS counterpart under
+   Node. Reanimated ships `react-native-reanimated/jest/resolver` to redirect those
+   internals to their web builds — but jest-expo already sets its own resolver and Jest
+   accepts only one. Both are middleware-shaped, so `tests/resolver.js` chains them.
+
+2. **RNTL 14 made `render()` async.** It returns a Promise now, for React 19 concurrent
+   rendering. A forgotten `await` surfaces as *"getByRole is not a function"*, which is
+   thoroughly misleading. Every `render()` in the suite is awaited, and the file says why.
+
+### One real bug the tests caught
+
+`ProgressBar` set `accessibilityRole="progressbar"` but not `accessible`. Without both,
+the element is not exposed as a single unit, so **TalkBack skips it entirely** — every
+progress bar in the app would have been invisible to screen readers. Fixed.
+
+That is the harness paying for itself on its first run.
 
 ### Built
 
@@ -571,8 +595,7 @@ winget install --id Microsoft.VCRedist.2015+.x64
 
 | Issue | Note |
 |---|---|
-| Jest blocked (R15) | One `winget` command away |
-| Not run on a device | Needs a phone, emulator, or an EAS dev-client build |
+| Not run on a device | Needs a phone, emulator, or an EAS dev-client build. **The only unmet Phase 1 exit criterion.** |
 | Launcher icons are placeholders | The opaque 1024px logo stands in; a maskable/transparent set is still outstanding (R6) |
 | `react-hooks/immutability` disabled | False positive on every Reanimated `sharedValue.value =` write; justified in `eslint.config.js` |
 | `import/namespace` off for `app/_layout.jsx` | `expo-splash-screen` re-exports extensionlessly; only a bundler resolves it |

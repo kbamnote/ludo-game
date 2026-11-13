@@ -31,6 +31,8 @@
  */
 module.exports = {
   preset: 'jest-expo',
+  // Chains the React Native and Reanimated 4 resolvers — see tests/resolver.js.
+  resolver: '<rootDir>/tests/resolver.js',
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|react-native-worklets|nativewind|react-native-css-interop|@shopify/react-native-skia))',
