@@ -65,6 +65,10 @@ module.exports = [
         beforeAll: 'readonly',
         afterAll: 'readonly',
         jest: 'readonly',
+        // Tests run under Node, so CommonJS globals are available.
+        __dirname: 'readonly',
+        require: 'readonly',
+        process: 'readonly',
       },
     },
   },

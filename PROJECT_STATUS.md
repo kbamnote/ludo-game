@@ -1,6 +1,6 @@
 # LUDO AFTER DARK (Mobile) — Project Status
 
-**Phase:** 1 — Application Foundation (complete, awaiting approval for Phase 2)
+**Phase:** 2 — Complete UI Implementation (complete, awaiting approval for Phase 3)
 **Audit date:** 2026-11-13 · **Revised:** 2026-11-13 for the two-repository split
 **Phase 1 completed:** 2026-11-13
 **Repository:** `ludo-mobile` — `D:\Print World\ludo-game\ludo-mobile`
@@ -600,6 +600,78 @@ That is the harness paying for itself on its first run.
 | `react-hooks/immutability` disabled | False positive on every Reanimated `sharedValue.value =` write; justified in `eslint.config.js` |
 | `import/namespace` off for `app/_layout.jsx` | `expo-splash-screen` re-exports extensionlessly; only a bundler resolves it |
 | `D:\jest-control` left behind | A throwaway diagnostic folder I could not delete (removal of top-level dirs is blocked). Safe to delete. |
+
+---
+
+## 15. Phase 2 result
+
+**Status: complete.** All 12 Stitch screens plus Settings are implemented, on real
+navigation, with data flowing through TanStack Query.
+
+### Verified
+
+| Check | Result |
+|---|---|
+| `npx expo-doctor` | ✅ **20/20 pass** |
+| `npx eslint .` | ✅ **0 errors, 0 warnings** |
+| `npx jest` | ✅ **53/53 pass**, 4 suites |
+| `npx expo export --platform android` | ✅ **2,258 modules → 5.0 MB** |
+| Launch on a physical Android device | ⚠️ **still not verified** |
+
+### Screens
+
+| Stitch | Route | Notes |
+|---|---|---|
+| 1 Splash | `app/index` | Built in Phase 1; now routes via onboarding → auth → tabs |
+| 2 Onboarding | `(onboarding)/index` | 3-step carousel; **steps 2–3 have no Stitch design** (§5.1) |
+| 3 Login & Signup | `(auth)/sign-in` | Tabbed modes, Apple/Google/Discord marks as real SVG, phone + OTP, guest entry |
+| 4 Avatar Studio | `(tabs)/profile/avatar` | Drag-to-rotate stage, hue presets, category filter, equip |
+| 5 Home | `(tabs)/index` | Marquee ticker, hero countdown, arena grid, crew rail, bounties |
+| 6 Lobby | `(tabs)/play/index` | Room code + clipboard copy, stakes tiers, all 4 seat states, voice dock |
+| 7 Gameplay | `match/[id]` | Turn ring, voice strip, **real Skia board**, taunts, dice |
+| 8 Profile | `(tabs)/profile/index` | Identity card, SVG radial win-rate, analytics bento, badges, loadout |
+| 9 Leaderboard | `(tabs)/leaderboard` | 2-1-3 podium, cutoff divider, sticky YOU bar |
+| 10 Store | `(tabs)/play/store` | Battle pass, filters, product cards, vault, confirm modal |
+| 11 Friends | `(tabs)/friends` | Search, invites, voice party, filter tabs, chat drawer |
+| 12 Match Results | `match/[id]/results` | Animated confetti, podium, rewards, standings, reactions |
+| — Settings | `(tabs)/profile/settings` | **No Stitch design** — composed from existing tokens (§5.1) |
+
+### R1 addressed — the board is engineered, not traced
+
+The Stitch gameplay screen has no usable board. `src/game/board/geometry.js` derives
+the real thing: a 15×15 grid, a 52-cell ring, four 5-cell home columns, 8 safe cells and
+four 6×6 houses. `LudoBoard.jsx` renders it with Skia in the Stitch visual language.
+
+**This is geometry, not rules.** No move legality, no capture, no turn order — those stay
+in `@ludo/engine` (ludo-server) and arrive in Phase 4. The gameplay screen is a shell: the
+dice animates and lands on a number, but tokens do not move and nobody wins. A dev-only
+banner says so on the screen itself so it is never mistaken for a working game.
+
+`tests/game/geometry.test.js` (21 assertions) found two real bugs on first run:
+
+1. **`homeEntryIndex` was off by one on all four players** — tokens would have turned into
+   their home column a square early, every game.
+2. The ring has four non-orthogonal steps. Investigation showed these are **correct** —
+   at each the in-between cell belongs to the central goal block, exactly as a physical
+   board behaves. The test now pins those four turns so they cannot be "fixed" into a bug.
+
+### The icon guard earned its place
+
+`tests/icons.test.js` walks the source for every icon name and fails if one is not in the
+bundled subset. It caught `auto_awesome` and `description` — both would have thrown at
+runtime, since `<Icon>` refuses to render an unknown glyph. The subset is now 117 glyphs,
+265 KB (down from 10.5 MB).
+
+### Scope held back deliberately
+
+Phase 2 is UI. These are visible and responsive but intentionally not wired, because
+faking them would make unbuilt features look finished:
+
+- **Avatar AI Face Scan** — capture, consent, crop and generation are Phase 3
+- **Token movement** — rules are Phase 4
+- **Dice authority** — the client rolls for show; the **server** must roll from Phase 5
+- **Voice** — LiveKit is Phase 6
+- **Purchases** — no currency is spent; receipts are validated server-side in Phase 7
 
 ---
 

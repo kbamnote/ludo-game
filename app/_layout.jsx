@@ -90,7 +90,10 @@ export default function RootLayout() {
                 }}
               >
                 <Stack.Screen name="index" />
+                <Stack.Screen name="(onboarding)" />
+                <Stack.Screen name="(auth)" />
                 <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="match" options={{ animation: 'slide_from_bottom' }} />
                 <Stack.Screen name="_dev" options={{ animation: 'slide_from_bottom' }} />
               </Stack>
             </View>

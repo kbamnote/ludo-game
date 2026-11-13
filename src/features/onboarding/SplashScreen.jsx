@@ -33,6 +33,7 @@ import { images } from '../../assets/images';
 import { faction, role } from '../../theme/colors';
 import { spacing, radii } from '../../theme/spacing';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { useAuthStore, AuthStatus } from '../../store/useAuthStore';
 
 function PulseRing({ size = 256, color, enabled }) {
   const scale = useSharedValue(1);
@@ -84,6 +85,8 @@ function PulseRing({ size = 256, color, enabled }) {
 export function SplashScreen() {
   const router = useRouter();
   const animations = useSettingsStore((s) => s.animationsEnabled);
+  const hasOnboarded = useAuthStore((s) => s.hasOnboarded);
+  const status = useAuthStore((s) => s.status);
   const [progress, setProgress] = useState(0.78);
   const [ready, setReady] = useState(false);
 
@@ -174,7 +177,14 @@ export function SplashScreen() {
           iconRight="arrow_forward"
           haptic="medium"
           disabled={!ready}
-          onPress={() => router.replace('/(tabs)')}
+          onPress={() => {
+            // First run goes through onboarding; afterwards straight to auth.
+            // Once there is a real session (Phase 3) this also skips auth.
+            if (!hasOnboarded) router.replace('/(onboarding)');
+            else if (status === AuthStatus.signedOut || status === AuthStatus.unknown)
+              router.replace('/(auth)/sign-in');
+            else router.replace('/(tabs)');
+          }}
         />
 
         <View style={{ alignItems: 'center' }}>
