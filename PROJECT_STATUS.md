@@ -689,6 +689,7 @@ equip, with working deletion.
 | `npx jest` (server) | ✅ **23/23** |
 | `npx eslint .` | ✅ **0 errors, 0 warnings** |
 | `npx expo-doctor` | ✅ **20/20** |
+| `npx expo export --platform android` | ✅ **2,272 modules → 5.07 MB** |
 | Live end-to-end against the server | ✅ upload → job → avatar → source photo deleted |
 
 ### Consent is a gate, not a checkbox
