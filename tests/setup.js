@@ -31,3 +31,23 @@ jest.mock('expo-blur', () => {
 
 // Silence the Reanimated strict-mode warnings that are noise in tests.
 global.__DEV__ = true;
+
+jest.mock('expo-image-picker', () => ({
+  launchCameraAsync: jest.fn(async () => ({ canceled: true })),
+  launchImageLibraryAsync: jest.fn(async () => ({ canceled: true })),
+  requestCameraPermissionsAsync: jest.fn(async () => ({ granted: true })),
+  requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ granted: true })),
+}));
+
+jest.mock('expo-image-manipulator', () => ({
+  manipulateAsync: jest.fn(async (uri) => ({ uri, width: 1024, height: 1024 })),
+  SaveFormat: { JPEG: 'jpeg' },
+}));
+
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true) }));
+
+// AsyncStorage has no JS implementation under Jest; the official mock is
+// shipped with the package.
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);

@@ -1,6 +1,6 @@
 # LUDO AFTER DARK (Mobile) — Project Status
 
-**Phase:** 2 — Complete UI Implementation (complete, awaiting approval for Phase 3)
+**Phase:** 3 — Personal AI Avatar System (complete, awaiting approval for Phase 4)
 **Audit date:** 2026-11-13 · **Revised:** 2026-11-13 for the two-repository split
 **Phase 1 completed:** 2026-11-13
 **Repository:** `ludo-mobile` — `D:\Print World\ludo-game\ludo-mobile`
@@ -672,6 +672,71 @@ faking them would make unbuilt features look finished:
 - **Dice authority** — the client rolls for show; the **server** must roll from Phase 5
 - **Voice** — LiveKit is Phase 6
 - **Purchases** — no currency is spent; receipts are validated server-side in Phase 7
+
+---
+
+## 16. Phase 3 result — the avatar system
+
+**Status: complete** across both repos. This is the product's core promise, so the
+flow is real end to end: consent → capture → crop → upload → generate → preview →
+equip, with working deletion.
+
+### Verified
+
+| Check | Result |
+|---|---|
+| `npx jest` (mobile) | ✅ **61/61**, 5 suites |
+| `npx jest` (server) | ✅ **23/23** |
+| `npx eslint .` | ✅ **0 errors, 0 warnings** |
+| `npx expo-doctor` | ✅ **20/20** |
+| Live end-to-end against the server | ✅ upload → job → avatar → source photo deleted |
+
+### Consent is a gate, not a checkbox
+
+`usePhotoCapture` refuses to open the camera or library without consent — it is a
+thrown error, not a disabled button, so there is no path to the picker that skips
+the explanation. The consent step states plainly that the photo is **deleted after
+generation**, and that is a real server-side guarantee
+(`AvatarsService.runJob`), not reassuring copy.
+
+Consent is keyed by **policy version** in both repos. Changing the policy re-asks
+rather than silently relying on agreement to different terms, and the server
+rejects a job carrying a stale version.
+
+### No provider credentials in the app
+
+The client has no provider URL, key or model name, and does not know a provider
+exists. It uploads a photo to our server and polls a job. A test asserts the base
+URL is not a provider and that no `Bearer sk-` style header is ever attached —
+because anything in a shipped bundle is extractable.
+
+### On-device work before anything leaves the phone
+
+Photos are cropped square, downscaled to 1024px and re-encoded at quality 0.85
+before upload, and **EXIF is stripped** (`exif: false`) — phone photos carry GPS
+coordinates, and there is no reason for those to reach a server.
+
+### Two real bugs found while checking it on screen
+
+1. **Blank app on launch.** `RootLayout` returned `null` until fonts resolved, and
+   handled `fontError` but not a *hang*. A font that neither resolves nor rejects
+   left a permanent black screen with no way out. Now falls through to the system
+   font after 5s with a warning. This would have hit Android too.
+2. **Ambient glows rendered as hard-edged discs.** `AmbientGlow` was a flat `View`
+   with a border radius — a solid circle is not a blur, however low its opacity.
+   Replaced with an SVG radial gradient (real falloff, one cheap draw, no blur
+   pass). A follow-up lint error also caught a module-level counter being mutated
+   during render; replaced with `useId`.
+
+### Deferred, and why
+
+- **Hairstyle / clothing / accessories as separate editors** — the Studio grid
+  handles equip, but per-category editing is only worth building once real
+  cosmetic artwork exists. None does (§5.1).
+- **Character animations** — needs the token art that is still outstanding (R6).
+- **Multiple results per generation** — the contract returns an array and the UI
+  reads `results[0]`; widening to a chooser is small once a real provider returns
+  variants.
 
 ---
 

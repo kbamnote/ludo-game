@@ -13,7 +13,7 @@
  * those controls need a home before the feature ships — not after.
  */
 import { useState } from 'react';
-import { View, Switch, Pressable, Modal, Linking } from 'react-native';
+import { View, Switch, Pressable, Modal, Linking, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { Screen } from '../../components/common/Screen';
@@ -28,6 +28,8 @@ import { Icon } from '../../components/icons/Icon';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUserStore } from '../../store/useUserStore';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useConsentStore } from '../../store/useConsentStore';
+import { avatarApi } from '../../services/avatarApi';
 import { useHaptics } from '../../hooks/useHaptics';
 import { compactNumber, thousands } from '../../utils/format';
 import { faction, role, surface, withAlpha } from '../../theme/colors';
@@ -141,6 +143,8 @@ export function SettingsScreen() {
   const user = useUserStore();
   const settings = useSettingsStore();
   const signOut = useAuthStore((s) => s.signOut);
+  const withdrawConsent = useConsentStore((s) => s.withdraw);
+  const [working, setWorking] = useState(false);
 
   const [confirm, setConfirm] = useState(null);
 
@@ -152,6 +156,31 @@ export function SettingsScreen() {
   const runConfirm = async () => {
     const action = confirm;
     setConfirm(null);
+
+    /**
+     * Deletion is real: it calls the server, which removes the database row
+     * AND the stored object. Consent is withdrawn alongside it — an agreement
+     * should not outlive the data it was given for.
+     */
+    if (action?.kind === 'deleteAvatarData') {
+      setWorking(true);
+      try {
+        await avatarApi.removeAll();
+        withdrawConsent();
+        haptics.success();
+        Alert.alert(
+          'Deleted',
+          'Your avatars and any uploaded photos have been removed from our servers.'
+        );
+      } catch (e) {
+        haptics.error();
+        Alert.alert('Could not delete', e.message);
+      } finally {
+        setWorking(false);
+      }
+      return;
+    }
+
     if (action?.kind === 'signOut') {
       await signOut();
       router.replace('/(auth)/sign-in');
@@ -320,15 +349,24 @@ export function SettingsScreen() {
         >
           <Row
             icon="photo_camera"
-            label="Uploaded photos"
-            detail="Review or delete the source photos used to build your avatar"
-            onPress={() => haptics.light()}
+            label="Create a new avatar"
+            detail="Use a photo to generate a 3D cartoon avatar"
+            onPress={() => router.navigate('/profile/create-avatar')}
           />
           <Row
-            icon="person"
-            label="Generated avatars"
-            detail="Delete avatars created from your photos"
-            onPress={() => haptics.light()}
+            icon="delete"
+            label={working ? 'Deleting…' : 'Delete my photo data'}
+            detail="Removes every avatar and any uploaded photo from our servers"
+            destructive
+            onPress={() =>
+              !working &&
+              setConfirm({
+                kind: 'deleteAvatarData',
+                title: 'Delete your photo data?',
+                body: 'Every avatar you have generated, and any photo still held for processing, will be permanently removed from our servers. This cannot be undone.',
+                confirmLabel: 'Delete',
+              })
+            }
           />
           <Row
             icon="visibility_off"

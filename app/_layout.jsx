@@ -61,13 +61,38 @@ export default function RootLayout() {
     };
   }, []);
 
-  // A font failure must not leave the user staring at a splash screen forever.
+  // A font failure must not leave the user staring at a blank screen forever.
   // Report it and carry on in the fallback font.
   useEffect(() => {
     if (fontError) console.error('[fonts] failed to load:', fontError);
   }, [fontError]);
 
-  const ready = (fontsLoaded || fontError) && sessionChecked;
+  /**
+   * Guard against useFonts neither resolving nor rejecting.
+   *
+   * `fontError` only covers an outright failure. If a font request stalls —
+   * a slow CDN, a half-open socket, or a platform where one face silently
+   * never settles — the gate below would hold `null` forever and the user
+   * would sit on a black screen with no way out. Found exactly that on web,
+   * where the bundled icon font never resolved.
+   *
+   * After the timeout we render anyway. Text falls back to the system font,
+   * which is ugly but usable; a permanent black screen is neither.
+   */
+  const [fontTimedOut, setFontTimedOut] = useState(false);
+  useEffect(() => {
+    if (fontsLoaded || fontError) return undefined;
+    const id = setTimeout(() => {
+      console.warn(
+        '[fonts] still not ready after 5s — rendering with system fallback. ' +
+          'Syne / Plus Jakarta Sans / Material Symbols may not display correctly.'
+      );
+      setFontTimedOut(true);
+    }, 5000);
+    return () => clearTimeout(id);
+  }, [fontsLoaded, fontError]);
+
+  const ready = (fontsLoaded || fontError || fontTimedOut) && sessionChecked;
 
   const onLayout = useCallback(() => {
     if (ready) SplashScreen.hideAsync().catch(() => {});

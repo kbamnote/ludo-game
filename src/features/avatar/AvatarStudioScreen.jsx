@@ -359,7 +359,7 @@ export function AvatarStudioScreen() {
             icon="photo_camera"
             variant="glass"
             size="sm"
-            onPress={() => haptics.warning()}
+            onPress={() => router.navigate('/profile/create-avatar')}
           />
         </View>
 
@@ -554,26 +554,6 @@ export function AvatarStudioScreen() {
             style={{ flex: 1 }}
           />
         </GlassSurface>
-
-        {__DEV__ ? (
-          <View
-            style={{
-              padding: spacing.sm,
-              borderRadius: radii.lg,
-              borderWidth: 1,
-              borderColor: withAlpha(faction.p3, 0.4),
-              backgroundColor: withAlpha(faction.p3, 0.1),
-            }}
-          >
-            <Text variant="label-sm" color={faction.p3}>
-              PLACEHOLDER COSMETIC ART
-            </Text>
-            <Text variant="body-sm" color={role.onSurfaceVariant}>
-              No item artwork exists in the Stitch output; these are Material Symbols glyphs. Photo
-              capture, consent and AI generation are Phase 3. Dev-only notice.
-            </Text>
-          </View>
-        ) : null}
       </Screen>
     </>
   );

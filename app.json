@@ -9,7 +9,9 @@
     "backgroundColor": "#0A0B10",
     "primaryColor": "#00FF87",
     "icon": "./src/assets/images/icon.png",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "package": "com.ludoafterdark.app",
       "versionCode": 1,
@@ -23,7 +25,11 @@
       "bundleIdentifier": "com.ludoafterdark.app",
       "buildNumber": "1",
       "supportsTablet": false,
-      "userInterfaceStyle": "dark"
+      "userInterfaceStyle": "dark",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Take a photo to generate your 3D cartoon avatar. The photo is deleted once the avatar is made.",
+        "NSPhotoLibraryUsageDescription": "Choose a photo to generate your 3D cartoon avatar. The photo is deleted once the avatar is made."
+      }
     },
     "plugins": [
       "expo-router",
@@ -39,10 +45,19 @@
       [
         "expo-font",
         {
-          "fonts": ["./src/assets/fonts/MaterialSymbolsOutlined.ttf"]
+          "fonts": [
+            "./src/assets/fonts/MaterialSymbolsOutlined.ttf"
+          ]
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ludo After Dark uses photos you choose to generate your 3D cartoon avatar. Your photo is deleted once the avatar is made.",
+          "cameraPermission": "Ludo After Dark uses the camera so you can take a photo for your 3D cartoon avatar. Your photo is deleted once the avatar is made."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": false
