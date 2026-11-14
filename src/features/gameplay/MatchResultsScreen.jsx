@@ -494,7 +494,7 @@ export function MatchResultsScreen() {
             size="lg"
             fullWidth
             haptic="heavy"
-            onPress={() => router.replace(`/match/${id}`)}
+            onPress={() => router.replace(`/match/${Date.now()}`)}
           />
           <NeonButton
             label="Share highlight reel"

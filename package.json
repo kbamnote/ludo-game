@@ -15,7 +15,8 @@
     "doctor": "expo-doctor",
     "bundle:android": "expo export --platform android --output-dir .expo-export",
     "build:icons": "node scripts/build-icon-font.mjs",
-    "build:assets": "node scripts/build-asset-registry.mjs"
+    "build:assets": "node scripts/build-asset-registry.mjs",
+    "sync:engine": "node scripts/sync-engine.mjs"
   },
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",

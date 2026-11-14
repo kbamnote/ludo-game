@@ -1,108 +1,65 @@
 /**
- * Live Match — Stitch screen 7.
+ * Live Match — Stitch screen 7, now playable.
  *
- * Turn ring + countdown, match pot, the four-player voice strip, the board
- * arena, chat ribbon, taunt bar, and the 2X BET / ROLL DICE command deck.
+ * Phase 4 replaces the Phase 2 shell with the real game: @ludo/engine drives
+ * turns, legal moves, captures, home entry and the win, with Skia rendering
+ * and Reanimated movement.
  *
- * ── Scope, stated plainly ───────────────────────────────────────────────────
- * This is the Phase 2 SHELL. The dice animates and lands on a number, the
- * turn timer runs, taunts fire — but there is no game. Tokens do not move,
- * nothing is captured, nobody wins.
+ * ── Separation held ─────────────────────────────────────────────────────────
+ * This file contains NO rules. It never decides whether a move is legal, who
+ * plays next, or what a 6 means — it renders engine state and forwards taps.
+ * `useMatchEngine` is the only bridge, and the engine itself is shared with
+ * the server (ludo-server/packages/engine).
  *
- * That is deliberate. The rules live in @ludo/engine (ludo-server repo) and
- * arrive in Phase 4, with real multiplayer in Phase 5. Wiring a throwaway
- * local rule set here would be work thrown away and, worse, would make an
- * unbuilt feature look finished.
- *
- * The board itself is real geometry, not decoration — see
- * src/game/board/geometry.js and risk R1 in PROJECT_STATUS.
+ * ── Dice authority ──────────────────────────────────────────────────────────
+ * The roll is generated locally because Phase 4 is an offline game. From
+ * Phase 5 the server generates it and `roll()` applies the value it is given.
+ * The seam already exists; only the source of the number changes.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { View, Pressable } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
 import Svg, { Circle } from 'react-native-svg';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSequence,
-  withTiming,
   withSpring,
+  withTiming,
   Easing,
+  FadeIn,
 } from 'react-native-reanimated';
 
 import { Screen } from '../../components/common/Screen';
 import { AppHeader, HEADER_HEIGHT } from '../../components/common/AppHeader';
 import { Text } from '../../components/common/Text';
+import { StatPill } from '../../components/common/StatPill';
 import { GlassSurface } from '../../components/common/GlassSurface';
 import { Avatar } from '../../components/common/Avatar';
+import { NeonButton } from '../../components/buttons/NeonButton';
 import { Icon } from '../../components/icons/Icon';
 import { WaveformBars } from '../../components/animations/WaveformBars';
-import { useCountdown } from '../../components/common/CountdownTimer';
-import { LoadingState, ErrorState } from '../../components/common/States';
-import { LudoBoard } from '../../game/board/LudoBoard';
+import { InteractiveBoard } from '../../game/board/InteractiveBoard';
 
-import { api, queryKeys } from '../../services/sampleData';
+import { useMatchEngine, ROLL_MS } from './useMatchEngine';
+import { Phase } from '../../game/engine/engine.js';
+import { PLAYERS } from '../../game/engine/board.js';
+import { liveMatch } from '../../services/sampleData';
 import { useUserStore } from '../../store/useUserStore';
-import { useHaptics } from '../../hooks/useHaptics';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import { useResponsive } from '../../hooks/useResponsive';
 import { thousands } from '../../utils/format';
 import { faction, role, surface, withAlpha } from '../../theme/colors';
 import { radii, spacing } from '../../theme/spacing';
 import { glow } from '../../theme/effects';
 
-/** Sample token layout, so the board shows a plausible mid-game state. */
-const SAMPLE_TOKENS = [
-  { seat: 0, slot: 0, progress: -1 },
-  { seat: 0, slot: 1, progress: -1 },
-  { seat: 0, slot: 2, progress: 12 },
-  { seat: 0, slot: 3, progress: 31 },
-  { seat: 1, slot: 0, progress: -1 },
-  { seat: 1, slot: 1, progress: 7 },
-  { seat: 1, slot: 2, progress: -1 },
-  { seat: 1, slot: 3, progress: -1 },
-  { seat: 2, slot: 0, progress: 19 },
-  { seat: 2, slot: 1, progress: -1 },
-  { seat: 2, slot: 2, progress: -1 },
-  { seat: 2, slot: 3, progress: 44 },
-  { seat: 3, slot: 0, progress: -1 },
-  { seat: 3, slot: 1, progress: 3 },
-  { seat: 3, slot: 2, progress: 27 },
-  { seat: 3, slot: 3, progress: -1 },
-];
-
 const DICE_PIPS = {
   1: [[1, 1]],
-  2: [
-    [0, 0],
-    [2, 2],
-  ],
-  3: [
-    [0, 0],
-    [1, 1],
-    [2, 2],
-  ],
-  4: [
-    [0, 0],
-    [2, 0],
-    [0, 2],
-    [2, 2],
-  ],
-  5: [
-    [0, 0],
-    [2, 0],
-    [1, 1],
-    [0, 2],
-    [2, 2],
-  ],
-  6: [
-    [0, 0],
-    [2, 0],
-    [0, 1],
-    [2, 1],
-    [0, 2],
-    [2, 2],
-  ],
+  2: [[0, 0], [2, 2]],
+  3: [[0, 0], [1, 1], [2, 2]],
+  4: [[0, 0], [2, 0], [0, 2], [2, 2]],
+  5: [[0, 0], [2, 0], [1, 1], [0, 2], [2, 2]],
+  6: [[0, 0], [2, 0], [0, 1], [2, 1], [0, 2], [2, 2]],
 };
 
 function DiceFace({ value, size = 44, color = faction.p1 }) {
@@ -111,14 +68,7 @@ function DiceFace({ value, size = 44, color = faction.p1 }) {
   const gap = (size - pad * 2 - pip) / 2;
 
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: radii.xl,
-        backgroundColor: surface.containerLowest,
-      }}
-    >
+    <View style={{ width: size, height: size, borderRadius: radii.xl, backgroundColor: surface.containerLowest }}>
       {(DICE_PIPS[value] ?? DICE_PIPS[6]).map(([cx, cy], i) => (
         <View
           key={i}
@@ -137,76 +87,80 @@ function DiceFace({ value, size = 44, color = faction.p1 }) {
   );
 }
 
-function TurnRing({ secondsLeft, total, size = 28 }) {
+function TurnRing({ seat, active, size = 28 }) {
   const r = (size - 3) / 2;
   const circumference = 2 * Math.PI * r;
-  const pct = Math.max(0, Math.min(1, secondsLeft / total));
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = 0;
+    if (active) {
+      progress.value = withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) });
+    }
+  }, [active, seat, progress]);
+
+  const color = faction[PLAYERS[seat].faction];
 
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg
-        width={size}
-        height={size}
-        style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}
-      >
+      <Svg width={size} height={size} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={surface.containerHighest} strokeWidth={3} fill="none" />
         <Circle
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke={surface.containerHighest}
-          strokeWidth={3}
-          fill="none"
-        />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          stroke={faction.p1}
+          stroke={color}
           strokeWidth={3}
           strokeLinecap="round"
-          strokeDasharray={`${circumference * pct} ${circumference}`}
+          strokeDasharray={`${circumference} ${circumference}`}
           fill="none"
         />
       </Svg>
-      <Text variant="label-sm" color={faction.p1} numeric>
-        {String(secondsLeft).padStart(2, '0')}
-      </Text>
+      <Icon name="casino" size={14} color={color} />
     </View>
   );
 }
 
-function VoiceStrip({ players }) {
+function VoiceStrip({ players, turn, standings }) {
   return (
     <GlassSurface over="void" style={{ padding: 6, flexDirection: 'row', gap: spacing.xs }}>
-      {players.map((p) => (
-        <View
-          key={p.seat}
-          style={{
-            flex: 1,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 6,
-            paddingHorizontal: 6,
-            paddingVertical: 4,
-            borderRadius: radii.lg,
-            backgroundColor: p.you ? surface.container : withAlpha(surface.containerHigh, 0.6),
-          }}
-        >
-          <Avatar source={p.avatar} size={24} faction={p.faction} ringWidth={1.5} />
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text variant="label-sm" color={faction[p.faction]} numberOfLines={1}>
-              {p.name}
-            </Text>
-            <WaveformBars
-              color={faction[p.faction]}
-              bars={3}
-              width={2}
-              height={8}
-              active={p.speaking}
-            />
+      {players.map((p) => {
+        const active = p.seat === turn;
+        const row = standings.find((s) => s.seat === p.seat);
+        return (
+          <View
+            key={p.seat}
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              paddingHorizontal: 6,
+              paddingVertical: 4,
+              borderRadius: radii.lg,
+              backgroundColor: active
+                ? withAlpha(faction[p.faction], 0.18)
+                : withAlpha(surface.containerHigh, 0.5),
+              borderWidth: 1,
+              borderColor: active ? faction[p.faction] : 'transparent',
+            }}
+          >
+            <Avatar source={p.avatar} size={24} faction={p.faction} ringWidth={1.5} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text variant="label-sm" color={faction[p.faction]} numberOfLines={1}>
+                {p.name}
+              </Text>
+              {active ? (
+                <WaveformBars color={faction[p.faction]} bars={3} width={2} height={8} />
+              ) : (
+                <Text variant="label-sm" color={role.onSurfaceVariant} numeric>
+                  {row?.home ?? 0}/4 home
+                </Text>
+              )}
+            </View>
           </View>
-        </View>
-      ))}
+        );
+      })}
     </GlassSurface>
   );
 }
@@ -214,134 +168,81 @@ function VoiceStrip({ players }) {
 export function MatchScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
-  const haptics = useHaptics();
   const user = useUserStore();
   const { width } = useResponsive();
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled);
 
-  const [dice, setDice] = useState(6);
-  const [rolling, setRolling] = useState(false);
-  const [toast, setToast] = useState(null);
+  const game = useMatchEngine({ seats: [0, 1, 2, 3], humanSeats: [0], seed: String(id ?? 'local') });
+  const [reaction, setReaction] = useState(null);
 
   const spin = useSharedValue(0);
   const scale = useSharedValue(1);
-
-  const { data, isPending, isError, refetch } = useQuery({
-    queryKey: queryKeys.match(id),
-    queryFn: api.getMatch,
-  });
-
-  const secondsLeft = useCountdown(data?.turnSecondsLeft ?? 10, { running: !!data });
 
   const diceStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${spin.value}deg` }, { scale: scale.value }],
   }));
 
-  const roll = useCallback(() => {
-    if (rolling) return;
-    setRolling(true);
-    haptics.heavy();
+  const handleRoll = useCallback(() => {
+    if (!game.canRoll) return;
+    if (animationsEnabled) {
+      spin.value = withTiming(spin.value + 540, { duration: ROLL_MS, easing: Easing.out(Easing.cubic) });
+      scale.value = withSequence(
+        withTiming(1.18, { duration: 180 }),
+        withSpring(1, { damping: 14, stiffness: 220 })
+      );
+    }
+    game.roll();
+  }, [game, animationsEnabled, spin, scale]);
 
-    spin.value = withTiming(spin.value + 540, { duration: 620, easing: Easing.out(Easing.cubic) });
-    scale.value = withSequence(
-      withTiming(1.18, { duration: 180 }),
-      withSpring(1, { damping: 14, stiffness: 220 })
-    );
-
-    // The result is cosmetic in Phase 2. From Phase 5 the SERVER rolls and
-    // sends the value — the client must never generate it for a real match.
-    setTimeout(() => {
-      setDice(1 + Math.floor(Math.random() * 6));
-      setRolling(false);
-    }, 620);
-  }, [rolling, haptics, spin, scale]);
-
-  const sendTaunt = (t) => {
-    haptics.light();
-    setToast(t.glyph ?? t.label);
-    setTimeout(() => setToast(null), 1100);
-  };
-
-  const header = (
-    <AppHeader
-      title="Live Match"
-      gems={thousands(user.gems)}
-      avatarSource={user.avatar}
-      avatarFaction={user.faction}
-      onBack={() => router.back()}
-      showLogo={false}
-    />
-  );
-
-  if (isPending) {
-    return (
-      <>
-        {header}
-        <Screen
-          edges={{ top: false, bottom: false }}
-          contentContainerStyle={{ paddingTop: HEADER_HEIGHT }}
-        >
-          <LoadingState label="Entering arena" />
-        </Screen>
-      </>
-    );
-  }
-
-  if (isError) {
-    return (
-      <>
-        {header}
-        <Screen
-          edges={{ top: false, bottom: false }}
-          contentContainerStyle={{ paddingTop: HEADER_HEIGHT }}
-        >
-          <ErrorState message="Could not join the match." onRetry={refetch} />
-        </Screen>
-      </>
-    );
-  }
+  // Hand off to the results screen once the game is over.
+  useEffect(() => {
+    if (!game.isFinished) return undefined;
+    const t = setTimeout(() => router.push(`/match/${id}/results`), 1600);
+    return () => clearTimeout(t);
+  }, [game.isFinished, id, router]);
 
   const boardSize = Math.min(width - spacing.margin * 2, 380);
+  const activePlayer = liveMatch.players.find((p) => p.seat === game.state.turn);
+
+  const statusLabel = game.isFinished
+    ? 'MATCH OVER'
+    : game.isHumanTurn
+      ? game.state.phase === Phase.awaitingRoll
+        ? 'YOUR TURN'
+        : 'PICK A TOKEN'
+      : `${activePlayer?.name ?? 'OPPONENT'}…`;
 
   return (
     <>
-      {header}
+      <AppHeader
+        title="Live Match"
+        gems={thousands(user.gems)}
+        avatarSource={user.avatar}
+        avatarFaction={user.faction}
+        onBack={() => router.back()}
+        showLogo={false}
+      />
+
       <Screen
         scroll
         edges={{ top: false, bottom: true }}
-        contentContainerStyle={{
-          paddingTop: HEADER_HEIGHT + spacing.sm,
-          paddingBottom: spacing.lg,
-          gap: spacing.sm,
-        }}
-        glows={[{ color: faction.p1, size: 300, top: 160, left: -70, opacity: 0.1 }]}
+        contentContainerStyle={{ paddingTop: HEADER_HEIGHT + spacing.sm, paddingBottom: spacing.lg, gap: spacing.sm }}
+        glows={[{ color: faction[PLAYERS[game.state.turn].faction], size: 300, top: 160, left: -70, opacity: 0.1 }]}
       >
         {/* Turn + pot */}
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: spacing.sm,
-          }}
-        >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm }}>
           <GlassSurface
             over="void"
             radius={radii.full}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.sm,
-              paddingHorizontal: spacing.md,
-              paddingVertical: 6,
-            }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 6 }}
           >
-            <TurnRing secondsLeft={secondsLeft} total={data.turnTotalSeconds} />
+            <TurnRing seat={game.state.turn} active={!game.isFinished} />
             <View>
-              <Text variant="label-sm" color={faction.p1}>
-                YOUR TURN
+              <Text variant="label-sm" color={faction[PLAYERS[game.state.turn].faction]}>
+                {statusLabel}
               </Text>
               <Text variant="body-sm" color={role.onSurfaceVariant}>
-                Select or Roll
+                {game.state.roll ? `Rolled ${game.state.roll}` : 'Tap to roll'}
               </Text>
             </View>
           </GlassSurface>
@@ -349,13 +250,7 @@ export function MatchScreen() {
           <GlassSurface
             over="void"
             radius={radii.full}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              paddingHorizontal: spacing.md,
-              paddingVertical: 6,
-            }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.md, paddingVertical: 6 }}
           >
             <Icon name="monetization_on" size={16} color={faction.p2} />
             <View style={{ alignItems: 'flex-end' }}>
@@ -363,89 +258,62 @@ export function MatchScreen() {
                 MATCH POT
               </Text>
               <Text variant="label-lg" color={role.secondaryFixed} numeric>
-                {thousands(data.pot)} COINS
+                {thousands(liveMatch.pot)}
               </Text>
             </View>
           </GlassSurface>
         </View>
 
-        <VoiceStrip players={data.players} />
+        <VoiceStrip players={liveMatch.players} turn={game.state.turn} standings={game.standings} />
 
         {/* Board */}
         <View style={{ alignItems: 'center', paddingVertical: spacing.xs }}>
-          <View
-            style={[
-              {
-                borderRadius: radii.xxxl,
-                overflow: 'hidden',
-                backgroundColor: surface.containerLowest,
-              },
-              glow.primary,
-            ]}
-          >
-            <LudoBoard
+          <View style={[{ borderRadius: radii.xxxl, overflow: 'hidden', backgroundColor: surface.containerLowest }, glow.primary]}>
+            <InteractiveBoard
               size={boardSize}
-              tokens={SAMPLE_TOKENS}
-              highlighted={['0-2', '0-3']}
-              threatIndex={19}
+              tokens={game.state.tokens}
+              movableTokenIds={game.movableTokenIds}
+              onSelectToken={game.move}
             />
           </View>
         </View>
 
-        {/* Chat ribbon */}
-        <GlassSurface
-          radius={radii.full}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: spacing.sm,
-            paddingHorizontal: spacing.md,
-            paddingVertical: 8,
-          }}
-        >
-          <Icon name="chat_bubble" size={14} color={faction.p2} />
-          <View
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}
-          >
-            <Text variant="label-sm" color={role.secondaryFixed}>
-              {data.lastMessage.author}:
-            </Text>
-            <Text
-              variant="body-sm"
-              color={role.onSurface}
-              numberOfLines={1}
-              style={{ flexShrink: 1 }}
+        {/* Hint */}
+        {game.movableTokenIds.length > 0 ? (
+          <Animated.View entering={FadeIn.duration(200)}>
+            <GlassSurface
+              radius={radii.full}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 8 }}
             >
-              &ldquo;{data.lastMessage.text}&rdquo;
-            </Text>
-          </View>
-          <Text variant="label-sm" color={role.onSurfaceVariant}>
-            {data.lastMessage.time}
-          </Text>
-        </GlassSurface>
+              <Icon name="touch_app" size={14} color={faction.p1} />
+              <Text variant="body-sm" color={role.onSurface} style={{ flex: 1 }}>
+                {game.movableTokenIds.length === 1
+                  ? 'Tap your glowing token to move it.'
+                  : `${game.movableTokenIds.length} tokens can move — tap one.`}
+              </Text>
+            </GlassSurface>
+          </Animated.View>
+        ) : null}
 
         {/* Taunts */}
         <GlassSurface
           over="void"
           radius={radii.xxl}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: spacing.sm,
-            paddingVertical: 6,
-          }}
+          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.sm, paddingVertical: 6 }}
         >
           <Text variant="label-sm" color={role.onSurfaceVariant}>
             TAUNTS
           </Text>
           <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-            {data.taunts.map((t) => (
+            {liveMatch.taunts.map((t) => (
               <Pressable
                 key={t.id}
                 accessibilityRole="button"
                 accessibilityLabel={t.label ?? `Send ${t.id}`}
-                onPress={() => sendTaunt(t)}
+                onPress={() => {
+                  setReaction(t.glyph ?? t.label);
+                  setTimeout(() => setReaction(null), 1100);
+                }}
                 style={({ pressed }) => ({
                   width: 36,
                   height: 36,
@@ -472,8 +340,8 @@ export function MatchScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Double bet"
-            onPress={() => haptics.medium()}
+            accessibilityLabel="Restart match"
+            onPress={game.restart}
             style={({ pressed }) => ({
               width: 64,
               height: 64,
@@ -484,108 +352,102 @@ export function MatchScreen() {
               transform: [{ scale: pressed ? 0.95 : 1 }],
             })}
           >
-            <Icon name="casino" size={20} color={faction.p2} />
+            <Icon name="replay" size={20} color={faction.p2} />
             <Text variant="label-sm" color={role.onSurfaceVariant}>
-              2X BET
+              RESTART
             </Text>
           </Pressable>
 
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Roll dice"
-            accessibilityState={{ busy: rolling }}
-            onPress={roll}
+            accessibilityState={{ disabled: !game.canRoll }}
+            disabled={!game.canRoll}
+            onPress={handleRoll}
             style={({ pressed }) => [
               {
                 flex: 1,
                 height: 64,
                 borderRadius: radii.xxl,
-                backgroundColor: faction.p1,
+                backgroundColor: game.canRoll ? faction.p1 : surface.containerHigh,
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 paddingHorizontal: spacing.lg,
+                opacity: game.canRoll ? 1 : 0.6,
                 transform: [{ scale: pressed ? 0.98 : 1 }],
               },
-              glow.primaryStrong,
+              game.canRoll ? glow.primaryStrong : null,
             ]}
           >
             <View>
-              <Text variant="label-lg" color={role.onPrimary}>
-                ROLL DICE
+              <Text variant="label-lg" color={game.canRoll ? role.onPrimary : role.onSurfaceVariant}>
+                {game.isFinished ? 'MATCH OVER' : game.canRoll ? 'ROLL DICE' : 'WAIT…'}
               </Text>
-              <Text variant="label-sm" color={role.onPrimaryFixedVariant}>
-                TAP TO ROLL
+              <Text variant="label-sm" color={game.canRoll ? role.onPrimaryFixedVariant : role.outline}>
+                {game.state.phase === Phase.awaitingMove ? 'PICK A TOKEN' : 'TAP TO ROLL'}
               </Text>
             </View>
             <Animated.View style={diceStyle}>
-              <DiceFace value={dice} />
+              <DiceFace
+                value={game.state.roll ?? 6}
+                color={game.canRoll ? faction.p1 : role.onSurfaceVariant}
+              />
             </Animated.View>
           </Pressable>
         </View>
-
-        {/* Scope notice — kept visible in dev so the shell is never mistaken
-            for a working game. */}
-        {__DEV__ ? (
-          <View
-            style={{
-              flexDirection: 'row',
-              gap: 6,
-              padding: spacing.sm,
-              borderRadius: radii.lg,
-              borderWidth: 1,
-              borderColor: withAlpha(faction.p2, 0.35),
-              backgroundColor: withAlpha(faction.p2, 0.08),
-            }}
-          >
-            <Icon name="info" size={14} color={faction.p2} />
-            <Text variant="body-sm" color={role.onSurfaceVariant} style={{ flex: 1 }}>
-              Phase 2 shell. The board geometry is real, but there are no rules yet — tokens do not
-              move. @ludo/engine lands in Phase 4, server-authoritative dice in Phase 5.
-            </Text>
-          </View>
-        ) : null}
-
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(`/match/${id}/results`)}
-          style={{ alignItems: 'center', paddingVertical: spacing.sm }}
-        >
-          <Text variant="label-sm" color={role.outline}>
-            PREVIEW MATCH RESULTS →
-          </Text>
-        </Pressable>
       </Screen>
 
-      {/* Taunt toast */}
-      {toast ? (
-        <View
-          pointerEvents="none"
+      {/* Event toast — captures, extra turns, forfeits */}
+      {game.toast || reaction ? (
+        <View pointerEvents="none" style={{ position: 'absolute', bottom: 130, left: 0, right: 0, alignItems: 'center' }}>
+          <Animated.View entering={FadeIn.duration(140)}>
+            <GlassSurface
+              over="containerHigh"
+              radius={radii.full}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm }}
+            >
+              <Text variant="headline-sm">{game.toast?.glyph ?? reaction}</Text>
+              {game.toast ? (
+                <Text variant="label-md" color={faction.p1}>
+                  {game.toast.label}
+                </Text>
+              ) : null}
+            </GlassSurface>
+          </Animated.View>
+        </View>
+      ) : null}
+
+      {/* Victory overlay */}
+      {game.isFinished ? (
+        <Animated.View
+          entering={FadeIn.duration(300)}
           style={{
             position: 'absolute',
-            bottom: 120,
-            left: 0,
-            right: 0,
+            inset: 0,
             alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: withAlpha(surface.void, 0.88),
           }}
         >
-          <GlassSurface
-            over="containerHigh"
-            radius={radii.full}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: spacing.sm,
-              paddingHorizontal: spacing.md,
-              paddingVertical: spacing.sm,
-            }}
-          >
-            <Text variant="headline-sm">{toast}</Text>
-            <Text variant="label-md" color={faction.p1}>
-              SENT TO SQUAD
+          <GlassSurface over="containerHigh" style={{ padding: spacing.lg, alignItems: 'center', gap: spacing.sm, width: 280 }}>
+            <Icon
+              name={game.state.winner === 0 ? 'workspace_premium' : 'skull'}
+              size={40}
+              color={game.state.winner === 0 ? faction.p1 : faction.p3}
+            />
+            <Text variant="display-hero" color={role.tertiary} uppercase>
+              {game.state.winner === 0 ? 'Victory' : 'Defeat'}
             </Text>
+            <StatPill
+              label={`${PLAYERS[game.state.winner].name} wins`}
+              color={faction[PLAYERS[game.state.winner].faction]}
+              tinted
+            />
+            <NeonButton label="See results" fullWidth onPress={() => router.push(`/match/${id}/results`)} />
+            <NeonButton label="Play again" variant="glass" fullWidth onPress={game.restart} />
           </GlassSurface>
-        </View>
+        </Animated.View>
       ) : null}
     </>
   );

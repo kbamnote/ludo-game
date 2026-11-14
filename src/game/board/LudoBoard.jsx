@@ -44,7 +44,11 @@ import { faction, surface, withAlpha } from '../../theme/colors';
 const c = (hex, alpha = 1) => Skia.Color(alpha === 1 ? hex : withAlpha(hex, alpha));
 
 function starPath(cx, cy, outer, inner, points = 5) {
-  const p = Skia.Path.Make();
+  // Skia.Path.Make() returns undefined until the backend is live (Expo Go, or
+  // web before CanvasKit loads). Calling .moveTo() on that threw and took the
+  // whole match screen down, so the caller gets null and draws nothing.
+  const p = Skia?.Path?.Make?.();
+  if (!p) return null;
   for (let i = 0; i < points * 2; i += 1) {
     const r = i % 2 === 0 ? outer : inner;
     const a = (Math.PI / points) * i - Math.PI / 2;
@@ -58,7 +62,8 @@ function starPath(cx, cy, outer, inner, points = 5) {
 }
 
 function polyPath(points) {
-  const p = Skia.Path.Make();
+  const p = Skia?.Path?.Make?.();
+  if (!p) return null;
   points.forEach((pt, i) => (i === 0 ? p.moveTo(pt.x, pt.y) : p.lineTo(pt.x, pt.y)));
   p.close();
   return p;

@@ -116,6 +116,7 @@ module.exports = [
   'theater_comedy',
   'timer',
   'toll',
+  'touch_app',
   'token',
   'track_changes',
   'trending_up',

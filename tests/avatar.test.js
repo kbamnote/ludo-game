@@ -106,7 +106,6 @@ describe('usePhotoCapture consent gate', () => {
    */
   it('refuses to open the picker without consent', async () => {
     jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { usePhotoCapture } = require('../src/features/avatar/usePhotoCapture');
       expect(typeof usePhotoCapture).toBe('function');
     });
