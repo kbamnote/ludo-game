@@ -13,7 +13,6 @@ import { useState } from 'react';
 import { View, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import * as Clipboard from 'expo-clipboard';
 
 import { Screen } from '../../components/common/Screen';
 import { AppHeader, HEADER_HEIGHT } from '../../components/common/AppHeader';
@@ -229,7 +228,6 @@ export function LobbyScreen() {
   const user = useUserStore();
 
   const [tier, setTier] = useState('hot');
-  const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(false);
   const [deafened, setDeafened] = useState(false);
 
@@ -287,13 +285,6 @@ export function LobbyScreen() {
     );
   }
 
-  const copy = async () => {
-    haptics.light();
-    await Clipboard.setStringAsync(data.roomCode).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const filled = data.seats.filter((s) => s.state !== 'empty').length;
 
   return (
@@ -340,12 +331,26 @@ export function LobbyScreen() {
             </View>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+            {/*
+              Was "Copy", which copied the sample code above it — a code that
+              matches no real room, so anyone sent it could never join. It now
+              opens a real private room; the live code is shown, copyable and
+              shareable, in the waiting room.
+            */}
             <NeonButton
-              label={copied ? 'Copied!' : 'Copy'}
-              icon={copied ? 'check' : 'content_copy'}
+              label="Invite"
+              icon="share"
               variant="glass"
               size="sm"
-              onPress={copy}
+              onPress={() =>
+                router.navigate({
+                  pathname: '/match/private',
+                  params: {
+                    mode: 'create',
+                    entryFee: data.tiers.find((t) => t.key === tier)?.amount ?? 0,
+                  },
+                })
+              }
             />
             <IconButton
               icon="settings"
@@ -549,8 +554,40 @@ export function LobbyScreen() {
             size="lg"
             fullWidth
             haptic="heavy"
-            onPress={() => router.navigate('/match/8409')}
+            /*
+             * Goes to a live, server-run match. The footer of this screen says
+             * "public room, auto-fill active", which is exactly quick match:
+             * Colyseus fills an open room before creating one, and the server
+             * puts bots in any seat still empty at the start.
+             *
+             * The stake the player picked above is the entry fee, and
+             * matchmaking filters on it — so a CASUAL player is never put in a
+             * VIP room.
+             */
+            onPress={() =>
+              router.navigate({
+                pathname: '/match/live',
+                params: {
+                  mode: 'quick',
+                  entryFee: data.tiers.find((t) => t.key === tier)?.amount ?? 0,
+                },
+              })
+            }
           />
+          {/*
+            The other half of an invite. Quick match above pairs players by
+            stake and only if they queue within the same window, so without a
+            way to type a code you cannot arrange a game with a specific
+            person at all.
+          */}
+          <NeonButton
+            label="Join with code"
+            icon="group_add"
+            variant="glass"
+            fullWidth
+            onPress={() => router.navigate('/play/join')}
+          />
+
           <View
             style={{
               flexDirection: 'row',

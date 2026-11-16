@@ -9,19 +9,10 @@
  * name, and no knowledge that a provider exists. The server owns all of that,
  * because anything in this bundle is extractable from a shipped APK.
  */
-import { Platform } from 'react-native';
+import { API_BASE } from './apiBase';
+import { authHeaders, clearToken } from './session';
 
-/**
- * Dev default points at the host machine. 10.0.2.2 is the Android emulator's
- * alias for the host; a physical device needs the LAN IP, which is why this is
- * configurable rather than hardcoded.
- */
-const DEFAULT_BASE = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
-
-export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? DEFAULT_BASE;
-
-/** Stand-in until the auth module lands in the server; see API_CONTRACT §auth. */
-const DEV_USER_ID = 'u_dev_local';
+export { API_BASE };
 
 export class AvatarApiError extends Error {
   constructor(message, { status, code } = {}) {
@@ -32,14 +23,33 @@ export class AvatarApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, headers = {}, raw, signal } = {}) {
-  let response;
+/**
+ * One authenticated request.
+ *
+ * A 401 is retried exactly once after dropping the token. The token is a
+ * 30-day JWT, so the realistic cause is an expiry or a server-side rotation
+ * rather than a wrong password — and since the device id is what actually
+ * authenticates, the retry recovers silently. Retrying more than once would
+ * turn a genuinely rejected device into an infinite loop.
+ */
+async function request(path, options = {}) {
+  const response = await send(path, options);
+
+  if (response.status === 401 && !options.retried) {
+    await clearToken();
+    return request(path, { ...options, retried: true });
+  }
+
+  return finish(response);
+}
+
+async function send(path, { method = 'GET', body, headers = {}, raw, signal } = {}) {
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    return await fetch(`${API_BASE}${path}`, {
       method,
       signal,
       headers: {
-        'x-user-id': DEV_USER_ID,
+        ...(await authHeaders()),
         ...(raw ? {} : body ? { 'content-type': 'application/json' } : {}),
         ...headers,
       },
@@ -52,7 +62,9 @@ async function request(path, { method = 'GET', body, headers = {}, raw, signal }
       code: 'network',
     });
   }
+}
 
+async function finish(response) {
   if (response.status === 204) return null;
 
   const text = await response.text();
@@ -90,6 +102,15 @@ export const avatarApi = {
   removeAll: () => request('/v1/avatars', { method: 'DELETE' }),
 
   /**
+   * Deletes the account itself, and everything attached to it.
+   *
+   * Lives in this client because it shares the authenticated request pipeline,
+   * including the 401 retry. Google Play requires an in-app route to this for
+   * any app that creates accounts.
+   */
+  deleteAccount: () => request('/v1/auth/me', { method: 'DELETE' }),
+
+  /**
    * Uploads a photo and returns its uploadId.
    *
    * Two steps by design: the server decides where bytes go, so the local
@@ -109,7 +130,7 @@ export const avatarApi = {
     const put = await fetch(slot.uploadUrl, {
       method: 'PUT',
       signal,
-      headers: { 'content-type': contentType, 'x-user-id': DEV_USER_ID },
+      headers: { 'content-type': contentType, ...(await authHeaders()) },
       body: blob,
     }).catch(() => null);
 

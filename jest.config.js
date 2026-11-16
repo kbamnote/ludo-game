@@ -1,33 +1,20 @@
 /**
  * Jest config.
  *
- * This is the plain, correct configuration. It does not currently RUN on this
- * machine, for an environmental reason that is nothing to do with this file:
+ * ── If Jest aborts before running a single test ─────────────────────────────
+ * It was once impossible to run Jest here at all, and the cause was not this
+ * file. jest-resolve 30 resolves modules through `unrs-resolver`, a native Rust
+ * addon whose Windows binary needs VCRUNTIME140_1.dll from the Microsoft Visual
+ * C++ 2015-2022 Redistributable (x64). With that DLL absent, loading the addon
+ * throws, unrs-resolver reports "Cannot find native binding", and
+ * findNodeModule() then returns null for EVERY path — including Jest's own
+ * runner — so Jest dies during config validation with an error that looks like
+ * a missing project file.
  *
- *   VCRUNTIME140_1.dll is missing from Windows\System32.
- *
- * Chain of failure:
- *   1. jest-resolve 30.x resolves modules through `unrs-resolver`, a native
- *      Rust addon.
- *   2. Its Windows binary (@unrs/resolver-binding-win32-x64-msvc) is installed
- *      and intact, but needs VCRUNTIME140_1.dll from the Microsoft Visual C++
- *      2015-2022 Redistributable (x64).
- *   3. That DLL is absent, so `require()` of the .node binary throws
- *      "The specified module could not be found".
- *   4. unrs-resolver then reports "Cannot find native binding".
- *   5. jest-resolve's findNodeModule() returns null for EVERY path — including
- *      Jest's own jest-circus runner — so Jest aborts during config validation
- *      before running a single test.
- *
- * Verified: fs.statSync() confirms the files Jest claims are "not found" exist.
- * Reproduces with zero config on a trivial test, under both Node 26 and Node
- * 22, inside and outside a path containing a space.
- *
- * Fix: install the Microsoft Visual C++ 2015-2022 Redistributable (x64), e.g.
+ * Resolved by installing the redistributable:
  *   winget install --id Microsoft.VCRedist.2015+.x64
- * then re-run `npm test`. No code change is needed.
  *
- * Tracked in PROJECT_STATUS.md as a known environment blocker.
+ * Recorded because the symptom points nowhere near the cause.
  */
 module.exports = {
   preset: 'jest-expo',

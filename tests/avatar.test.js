@@ -8,6 +8,20 @@
  */
 import { POLICY_VERSION } from '../src/store/useConsentStore';
 import { avatarApi, API_BASE, AvatarApiError } from '../src/services/avatarApi';
+import { clearToken } from '../src/services/session';
+
+/**
+ * The session is stubbed so these tests exercise the avatar client.
+ *
+ * Without it every assertion about "the request" would be about the guest
+ * sign-in that now precedes it, and a `global.fetch` stub would be answering
+ * two different endpoints with one canned response.
+ */
+jest.mock('../src/services/session', () => ({
+  authHeaders: jest.fn(async () => ({ authorization: 'Bearer test-token' })),
+  clearToken: jest.fn(async () => {}),
+  getAccessToken: jest.fn(async () => 'test-token'),
+}));
 
 describe('consent policy', () => {
   it('matches the version the server enforces', () => {
@@ -58,6 +72,46 @@ describe('avatarApi', () => {
     const serialised = JSON.stringify(headers).toLowerCase();
     expect(serialised).not.toContain('bearer sk-');
     expect(serialised).not.toContain('api-key');
+  });
+
+  it('authenticates with the bearer token the server issued', async () => {
+    // Phases 3-4 sent `x-user-id`, which the deployed server refuses — that is
+    // why the live avatar routes answered 401. This pins the replacement.
+    let headers = null;
+    global.fetch = jest.fn(async (_url, init) => {
+      headers = init.headers;
+      return { ok: true, status: 200, text: async () => '{"styles":[]}' };
+    });
+
+    await avatarApi.getStyles();
+
+    expect(headers.authorization).toBe('Bearer test-token');
+    expect(JSON.stringify(headers).toLowerCase()).not.toContain('x-user-id');
+  });
+
+  it('refreshes the token once on a 401 instead of failing the request', async () => {
+    let calls = 0;
+    global.fetch = jest.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? { ok: false, status: 401, text: async () => '{"message":"Unauthorized"}' }
+        : { ok: true, status: 200, text: async () => '{"styles":[]}' };
+    });
+
+    await expect(avatarApi.getStyles()).resolves.toEqual({ styles: [] });
+    expect(calls).toBe(2);
+    expect(clearToken).toHaveBeenCalled();
+  });
+
+  it('gives up after one retry so a rejected device cannot loop forever', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: false,
+      status: 401,
+      text: async () => '{"message":"Unauthorized"}',
+    }));
+
+    await expect(avatarApi.getStyles()).rejects.toBeInstanceOf(AvatarApiError);
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('turns a network failure into a message a user can act on', async () => {

@@ -30,6 +30,8 @@ import { useUserStore } from '../../store/useUserStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useConsentStore } from '../../store/useConsentStore';
 import { avatarApi } from '../../services/avatarApi';
+import { API_BASE } from '../../services/apiBase';
+import { forgetDevice } from '../../services/session';
 import { useHaptics } from '../../hooks/useHaptics';
 import { compactNumber, thousands } from '../../utils/format';
 import { faction, role, surface, withAlpha } from '../../theme/colors';
@@ -175,6 +177,35 @@ export function SettingsScreen() {
       } catch (e) {
         haptics.error();
         Alert.alert('Could not delete', e.message);
+      } finally {
+        setWorking(false);
+      }
+      return;
+    }
+
+    /**
+     * Account deletion, which Google Play requires for any app that creates
+     * accounts — this one does, on first launch.
+     *
+     * The device id goes too, via `forgetDevice`. Keeping it would mean the
+     * very next sign-in presented a credential for an account the server had
+     * just deleted, and the player would be handed a brand-new empty account
+     * without being told why. Deleting locally only after the server confirms
+     * keeps the two in step.
+     */
+    if (action?.kind === 'deleteAccount') {
+      setWorking(true);
+      try {
+        await avatarApi.deleteAccount();
+        withdrawConsent();
+        await forgetDevice();
+        await signOut();
+        haptics.success();
+        router.replace('/(auth)/sign-in');
+        Alert.alert('Account deleted', 'Your account and all its data have been removed.');
+      } catch (e) {
+        haptics.error();
+        Alert.alert('Could not delete your account', e.message);
       } finally {
         setWorking(false);
       }
@@ -374,10 +405,16 @@ export function SettingsScreen() {
             right={<StatPill label="FRIENDS ONLY" color={role.secondaryFixed} size="sm" />}
             onPress={() => haptics.light()}
           />
+          {/*
+            Derived from API_BASE, not hardcoded. The policy is served by the
+            same server as the API, so the link cannot point at a stale host —
+            and it was previously https://example.com/privacy, a placeholder
+            that would have failed Play review on its own.
+          */}
           <Row
             icon="policy"
             label="Privacy policy"
-            onPress={() => Linking.openURL('https://example.com/privacy').catch(() => {})}
+            onPress={() => Linking.openURL(`${API_BASE}/privacy`).catch(() => {})}
             last
           />
         </Section>
@@ -407,6 +444,21 @@ export function SettingsScreen() {
                 title: 'Sign out?',
                 body: 'You will need to sign in again to get back into your account.',
                 confirmLabel: 'Sign out',
+              })
+            }
+          />
+          <Row
+            icon="delete"
+            label={working ? 'Deleting…' : 'Delete account'}
+            detail="Permanently removes your account, avatars and progress"
+            destructive
+            onPress={() =>
+              !working &&
+              setConfirm({
+                kind: 'deleteAccount',
+                title: 'Delete your account?',
+                body: 'Your account, every avatar, your progress and your match history will be permanently removed. This cannot be undone, and a guest account cannot be recovered.',
+                confirmLabel: 'Delete account',
               })
             }
             last

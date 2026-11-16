@@ -765,3 +765,157 @@ coordinates, and there is no reason for those to reach a server.
 10. **Wagering** (R9) — is in-game currency purely virtual, or is real money in scope?
 11. **Settings + onboarding 2–3** — generate matching Stitch screens for the gaps, or design them
     in-code against the existing token system?
+
+---
+
+## Phase 5 — online play (mobile side)
+
+### What landed
+
+| Piece | File |
+|---|---|
+| Session / guest auth | `src/services/session.js` |
+| Shared server origin | `src/services/apiBase.js` (`API_BASE`, `REALTIME_URL`) |
+| Colyseus client | `src/services/realtime.js` |
+| Online match hook | `src/features/gameplay/useOnlineMatch.js` |
+| Online mode in the match screen | `src/features/gameplay/MatchScreen.jsx` |
+| Lobby start button → live quick match | `src/features/multiplayer/LobbyScreen.jsx` |
+
+`/match/<id>` with no params is still the offline CPU game. `?mode=quick`,
+`?mode=create` or `?mode=join&code=ABCD` plays online.
+
+### Decisions
+
+- **`useOnlineMatch` returns the same shape as `useMatchEngine`.** The server's
+  view is projected into the engine's state shape, so the Skia board, the dice
+  and the HUD render online play unchanged. Two renderers that had to agree
+  about board geometry would drift, and the bug would look like a board bug.
+  `project()` is exported and tested for exactly this reason.
+- **No dice prediction.** `roll()` sends the word "roll"; the value arrives in
+  the next patch. A predicted roll the server contradicts means the number
+  changes under the player's thumb.
+- **Auth replaced the `x-user-id` header.** That header is refused in
+  production, which is why the deployed avatar routes answered 401. The avatar
+  client now sends a bearer token and retries once on a 401.
+- **The device id is treated as a secret.** Guest sign-in is "whoever presents
+  this id is this account", so it is generated with `expo-crypto` and kept in
+  secure storage. A `Math.random()` id would be guessable, and guessing it
+  would be account takeover.
+
+### Known gaps
+
+- **The Stitch lobby screen still shows sample seats.** Its Start button opens
+  a live match, and the real waiting room (room code, who is in, ready) is an
+  overlay on the match screen. Binding the lobby itself to live room state
+  needs the Colyseus room to be shared between the two screens — a room
+  context — and is not done.
+- **The lobby's Start button is now the only match entry point, and it goes
+  online.** Offline vs CPU is still reachable at `/match/<id>` but has no UI
+  entry. Adding one means a control the Stitch design does not have.
+- **Opponent avatar art is missing (R6).** Online opponents fall back to
+  initials rather than borrowing a sample player's face.
+- **Nothing has run on a physical device.** Verified against the compiled
+  server from Node; the Expo client has not been exercised on hardware.
+
+### Metro cannot bundle `ws` — shimmed, not polyfilled
+
+`@colyseus/sdk`'s transport opens with a static `import NodeWebSocket from 'ws'`
+and then picks `globalThis.WebSocket || NodeWebSocket`. React Native always has
+a global WebSocket, so the `ws` branch is dead code — but the import is static,
+so Metro still resolves it, and `ws` requires Node's `stream`, `zlib`, `net`,
+`tls` and `crypto`. The Android bundle failed outright with
+"attempted to import the Node standard library module".
+
+`metro.config.js` aliases `ws` to `src/shims/ws.js`, which re-exports the
+platform's own WebSocket. Polyfilling the five Node modules instead would ship
+a stream implementation and zlib into the bundle to satisfy a branch that never
+runs.
+
+Two things to know if this ever resurfaces:
+
+- The transport branches on `typeof document !== "undefined"`. React Native has
+  no `document`, so it takes the Node branch and calls
+  `new WebSocket(url, { headers, protocols })`. React Native's constructor
+  coerces a non-array `protocols` to `null` and ignores it, so this is harmless
+  — and the socket needs no headers, because the seat reservation travels in
+  the URL and `onAuth` already ran during HTTP matchmaking.
+- Verified by `npx expo export --platform android`, which is the only thing
+  that proves it: lint and Jest both resolve `ws` to the real Node package and
+  pass either way.
+
+### `expo-crypto` removed — the server mints the device id
+
+Phase 5's first cut generated the guest device id with `Crypto.randomUUID()`
+from `expo-crypto`. That is a native module, so it threw
+`Cannot find native module 'ExpoCrypto'` in Expo Go and in any dev client built
+before it was added — and because `session.js` is imported by `avatarApi.js`,
+the throw took down every screen that touches either: the avatar screens, the
+settings screen and the match screen all logged "missing the required default
+export", which was the crash, not a routing fault.
+
+`POST /v1/auth/guest` now mints the id server-side with `node:crypto` and
+returns it; this app stores it and sends it back thereafter. Better on both
+counts: an id generated on the server cannot be weaker than the client's
+randomness (the previous server comment correctly noted a client-supplied id is
+not a secret), and the app needs no native module for it.
+
+Every native module the app now uses predates Phase 5, so an existing dev
+client runs it without a rebuild. The only Phase 5 dependency is
+`@colyseus/sdk`, which is pure JavaScript once `ws` is shimmed.
+
+`tests/session.test.js` pins the parts whose failure is permanent: a first run
+sends no device id, the returned id is written to the keychain **before** the
+token (token-first would, if the app were killed between the two writes, mint a
+second account and orphan the first with its avatars), concurrent callers share
+one sign-in, and a 401 clears the token while keeping the id.
+
+### Invite UI
+
+| Where | What |
+|---|---|
+| `src/features/multiplayer/JoinMatchScreen.jsx` | New. Four-box code entry over one hidden input — four separate inputs would mean managing focus between them and would break paste. Accepts only the server's code alphabet, so a typo is caught before a round trip. |
+| `app/(tabs)/play/join.jsx` | Route for it, inside the existing play stack. |
+| Lobby "Invite" button | Replaces "Copy", which copied the sample-data code displayed above it — a code matching no real room, so anyone sent it could never join. Now opens a real private room. |
+| Lobby "Join with code" | Added. Without a way to type a code, a private room is unreachable. |
+| Waiting room | Shows the live code with Copy and Share (OS share sheet via React Native's own `Share`, so no new native module), plus "Start with CPUs" for the host. |
+
+Validation is deliberately only the *shape* of the code. Whether the room still
+exists is the server's answer, surfaced by the match screen's error state — two
+places deciding what a valid code is would eventually disagree.
+
+The lobby's seat cards and the code shown on its card are still sample data;
+only the buttons are live. Binding that screen to a real room still needs the
+Colyseus room shared between the lobby and the match screen.
+
+### Play Store prerequisites (app side)
+
+| Added / fixed | Detail |
+|---|---|
+| `eas.json` | Did not exist, so no `.aab` could be built. Three profiles; `EXPO_PUBLIC_API_URL` is set **per profile** because it is inlined at build time — a build cannot be repointed afterwards. |
+| Submit track | `alpha`, which is Play's **closed** testing track. Internal testing does not count toward the 12-testers-for-14-days requirement a new personal developer account must satisfy, so submitting to `internal` would run a test that starts no clock. `releaseStatus: "draft"` so an upload never reaches testers as a side effect of a build. |
+| Privacy policy link | Was `https://example.com/privacy` — a placeholder that would have failed review on its own. Now `${API_BASE}/privacy`, derived so it cannot point at a stale host. |
+| Delete account | New row in Settings → Account. Calls `DELETE /v1/auth/me`, withdraws consent, then `forgetDevice()` — keeping the device id would hand the player a brand-new empty account on the next launch without explaining why. Local state is cleared only after the server confirms. |
+| Adaptive icon | Was a byte-for-byte copy of the square icon. See below. |
+
+### The adaptive icon was the square icon
+
+Android masks an adaptive foreground to a circle or squircle and guarantees
+only the centre 66dp of 108dp. The old foreground was `icon.png` verbatim, so
+the "LUDO AFTER DARK" wordmark across its bottom third was **cut off entirely**
+and the dice was clipped at the edges.
+
+`scripts/make-adaptive-icon.mjs` (`npm run icon:adaptive`) now crops to the
+dice alone and centres it at 440x417 — a 606px diagonal inside the 626px safe
+circle — on a canvas filled with #191c21, the artwork's own background sampled
+from the source corners. `app.json` now declares that same colour; it said
+#0A0B10, which did not match, so any crop edge would have shown as a square.
+
+The crop bounds are measured, not eyeballed: scanning for non-background pixels
+puts the dice at (280,206)-(743,645), and row extents show the wordmark
+starting at y=650 where the row jumps to x=846.
+
+`sharp` is a devDependency for this. It is not imported by any app code and
+never reaches the bundle.
+
+The square `icon.png` is untouched — it is not masked, so the wordmark is fine
+there.

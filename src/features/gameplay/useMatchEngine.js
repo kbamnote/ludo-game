@@ -31,7 +31,20 @@ export const ROLL_MS = 620;
 /** Pause before a CPU acts, so a turn is readable rather than instant. */
 const CPU_THINK_MS = 700;
 
-export function useMatchEngine({ seats = [0, 1, 2, 3], humanSeats = [0], seed = 'local' } = {}) {
+/**
+ * `enabled: false` keeps the hook mounted but stops it driving the game.
+ *
+ * The match screen must call this hook and the online one unconditionally —
+ * hooks cannot be called conditionally — so the unused one has to sit still.
+ * Without this, an online match would have CPU timers firing against a local
+ * game nobody is looking at.
+ */
+export function useMatchEngine({
+  seats = [0, 1, 2, 3],
+  humanSeats = [0],
+  seed = 'local',
+  enabled = true,
+} = {}) {
   const haptics = useHaptics();
   const animationsEnabled = useSettingsStore((s) => s.animationsEnabled);
 
@@ -172,6 +185,7 @@ export function useMatchEngine({ seats = [0, 1, 2, 3], humanSeats = [0], seed = 
    * animations or fire twice for one turn.
    */
   useEffect(() => {
+    if (!enabled) return undefined;
     if (busy) return undefined;
     if (state.phase === Phase.finished) return undefined;
     if (humanSeats.includes(state.turn)) return undefined;
@@ -188,7 +202,7 @@ export function useMatchEngine({ seats = [0, 1, 2, 3], humanSeats = [0], seed = 
 
     timers.current.push(id);
     return () => clearTimeout(id);
-  }, [state, busy, humanSeats, applyRoll, applyMove]);
+  }, [enabled, state, busy, humanSeats, applyRoll, applyMove]);
 
   /** Token ids the human may tap right now. */
   const movableTokenIds =

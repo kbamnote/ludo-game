@@ -16,8 +16,9 @@
  * Phase 5 the server generates it and `roll()` applies the value it is given.
  * The seam already exists; only the source of the number changes.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { View, Pressable } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Pressable, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
 import Animated, {
@@ -42,6 +43,7 @@ import { WaveformBars } from '../../components/animations/WaveformBars';
 import { InteractiveBoard } from '../../game/board/InteractiveBoard';
 
 import { useMatchEngine, ROLL_MS } from './useMatchEngine';
+import { useOnlineMatch, ConnectionStatus } from './useOnlineMatch';
 import { Phase } from '../../game/engine/engine.js';
 import { PLAYERS } from '../../game/engine/board.js';
 import { liveMatch } from '../../services/sampleData';
@@ -121,6 +123,31 @@ function TurnRing({ seat, active, size = 28 }) {
   );
 }
 
+/**
+ * Seconds left on the server's turn clock.
+ *
+ * The server plays for whoever runs out of time, so a player who cannot see
+ * the clock loses turns to a rule they were never shown. Returns null when
+ * there is no deadline, which is every offline match.
+ */
+function useTurnCountdown(deadline) {
+  // `now` is advanced only from the interval callback, and the seconds are
+  // derived from it during render. Reading the clock in the render body
+  // instead would be an impure call, and storing the seconds would mean
+  // writing state from an effect — both of which this project's lint rules
+  // reject, and both for good reasons under concurrent rendering.
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!deadline) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [deadline]);
+
+  if (!deadline) return null;
+  return Math.max(0, Math.ceil((deadline - now) / 1000));
+}
+
 function VoiceStrip({ players, turn, standings }) {
   return (
     <GlassSurface over="void" style={{ padding: 6, flexDirection: 'row', gap: spacing.xs }}>
@@ -145,7 +172,7 @@ function VoiceStrip({ players, turn, standings }) {
               borderColor: active ? faction[p.faction] : 'transparent',
             }}
           >
-            <Avatar source={p.avatar} size={24} faction={p.faction} ringWidth={1.5} />
+            <Avatar source={p.avatar} size={24} faction={p.faction} ringWidth={1.5} fallback={p.fallback} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text variant="label-sm" color={faction[p.faction]} numberOfLines={1}>
                 {p.name}
@@ -167,13 +194,62 @@ function VoiceStrip({ players, turn, standings }) {
 
 export function MatchScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id, mode, code, entryFee } = useLocalSearchParams();
   const user = useUserStore();
   const { width } = useResponsive();
   const animationsEnabled = useSettingsStore((s) => s.animationsEnabled);
 
-  const game = useMatchEngine({ seats: [0, 1, 2, 3], humanSeats: [0], seed: String(id ?? 'local') });
+  /**
+   * `mode` decides where the rules run. Absent means offline-vs-CPU, which is
+   * what `/match/<id>` has always meant and still does.
+   */
+  const isOnline = mode === 'quick' || mode === 'create' || mode === 'join';
+
+  /**
+   * Both hooks are called every render because hooks must be, and the unused
+   * one is told to sit still. The alternative — two components — would unmount
+   * and remount the board on mode change for no gain.
+   */
+  const online = useOnlineMatch({
+    enabled: isOnline,
+    mode: mode ?? 'quick',
+    code,
+    entryFee: Number(entryFee ?? 0),
+    name: user.displayName,
+  });
+  const offline = useMatchEngine({
+    seats: [0, 1, 2, 3],
+    humanSeats: [0],
+    seed: String(id ?? 'local'),
+    enabled: !isOnline,
+  });
+
+  const game = isOnline ? online : offline;
   const [reaction, setReaction] = useState(null);
+
+  /**
+   * Who is at the table.
+   *
+   * Offline uses the Stitch sample cast. Online uses the server's player list —
+   * real names, real connection state. Opponent avatar art is not available
+   * yet (no transparent token/portrait cutouts have been supplied, risk R6),
+   * so the Avatar falls back to initials rather than borrowing a sample
+   * player's face and presenting it as someone real.
+   */
+  const matchPlayers = useMemo(() => {
+    if (!isOnline) return liveMatch.players;
+
+    return (online.players ?? []).map((p) => ({
+      seat: p.seat,
+      // The server already names CPUs "CPU 2"; a "(bot)" suffix would read
+      // as "CPU 2 (bot)".
+      name: p.name,
+      faction: PLAYERS[p.seat].faction,
+      avatar: p.seat === online.mySeat ? user.avatar : undefined,
+      fallback: (p.name ?? '?').slice(0, 2).toUpperCase(),
+      connected: p.connected,
+    }));
+  }, [isOnline, online.players, online.mySeat, user.avatar]);
 
   const spin = useSharedValue(0);
   const scale = useSharedValue(1);
@@ -194,6 +270,36 @@ export function MatchScreen() {
     game.roll();
   }, [game, animationsEnabled, spin, scale]);
 
+  // Called before any conditional return, as every hook must be.
+  const secondsLeft = useTurnCountdown(isOnline ? online.turnDeadline : 0);
+
+  const [copiedCode, setCopiedCode] = useState(false);
+  const iAmReady = (online.players ?? []).find((p) => p.seat === online.mySeat)?.ready ?? false;
+
+  const handleCopyCode = useCallback(async () => {
+    if (!online.roomCode) return;
+    await Clipboard.setStringAsync(online.roomCode).catch(() => {});
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 1600);
+  }, [online.roomCode]);
+
+  /**
+   * Shares the code through the OS sheet — WhatsApp, Messages, whatever they
+   * use. The alternative is reading four characters down a phone line.
+   */
+  const handleShareCode = useCallback(() => {
+    if (!online.roomCode) return;
+    Share.share({
+      message: `Join my Ludo After Dark match. Room code: ${online.roomCode}`,
+    }).catch(() => {});
+  }, [online.roomCode]);
+
+  /** Leaving a live match tells the server, so the others are not left waiting. */
+  const handleLeave = useCallback(() => {
+    online.leave?.();
+    router.back();
+  }, [online, router]);
+
   // Hand off to the results screen once the game is over.
   useEffect(() => {
     if (!game.isFinished) return undefined;
@@ -201,8 +307,74 @@ export function MatchScreen() {
     return () => clearTimeout(t);
   }, [game.isFinished, id, router]);
 
+  /**
+   * Online, there is no state to draw until the server sends one. Rendering
+   * the board against a null state would crash on the first field read, so
+   * the connecting and failed cases get their own screen — and a failure says
+   * what to do next rather than leaving the player on an empty board.
+   */
+  if (isOnline && (game.state == null || game.status === ConnectionStatus.error)) {
+    const failed = game.status === ConnectionStatus.error;
+
+    return (
+      <>
+        <AppHeader
+          title={mode === 'join' ? 'Joining Match' : 'Finding Match'}
+          gems={thousands(user.gems)}
+          avatarSource={user.avatar}
+          avatarFaction={user.faction}
+          onBack={() => router.back()}
+          showLogo={false}
+        />
+        <Screen
+          edges={{ top: false, bottom: true }}
+          contentContainerStyle={{
+            paddingTop: HEADER_HEIGHT + spacing.lg,
+            gap: spacing.md,
+            alignItems: 'center',
+          }}
+        >
+          <Icon
+            name={failed ? 'warning' : 'groups'}
+            size={44}
+            color={failed ? faction.p3 : faction.p1}
+          />
+          <Text variant="headline-sm" color={role.onSurface} uppercase>
+            {failed ? 'Could not connect' : 'Finding players'}
+          </Text>
+          <Text
+            variant="body-sm"
+            color={role.onSurfaceVariant}
+            style={{ textAlign: 'center', paddingHorizontal: spacing.lg }}
+          >
+            {failed
+              ? game.error
+              : 'Matching you with players at your level. The match starts as soon as everyone is ready.'}
+          </Text>
+          {failed ? <NeonButton label="Back to lobby" onPress={() => router.back()} /> : null}
+        </Screen>
+      </>
+    );
+  }
+
   const boardSize = Math.min(width - spacing.margin * 2, 380);
-  const activePlayer = liveMatch.players.find((p) => p.seat === game.state.turn);
+  const activePlayer = matchPlayers.find((p) => p.seat === game.state.turn);
+
+  /**
+   * Who won, and whether that is us.
+   *
+   * Offline the player is always seat 0; online the server decides which seat
+   * they got, so "Victory" has to be judged against the real seat. The winner
+   * can also be momentarily unknown online — the finished flag arrives with
+   * the state patch that carries the ranking — so every read below tolerates
+   * null rather than indexing PLAYERS with it.
+   */
+  const mySeat = isOnline ? online.mySeat : 0;
+  const winnerSeat = game.state.winner;
+  const winnerPlayer = winnerSeat == null ? null : PLAYERS[winnerSeat];
+  const winnerName =
+    matchPlayers.find((p) => p.seat === winnerSeat)?.name ?? winnerPlayer?.name ?? 'Nobody';
+  const iWon = winnerSeat != null && winnerSeat === mySeat;
 
   const statusLabel = game.isFinished
     ? 'MATCH OVER'
@@ -242,7 +414,11 @@ export function MatchScreen() {
                 {statusLabel}
               </Text>
               <Text variant="body-sm" color={role.onSurfaceVariant}>
-                {game.state.roll ? `Rolled ${game.state.roll}` : 'Tap to roll'}
+                {secondsLeft != null && !game.isFinished
+                  ? `${secondsLeft}s left${game.state.roll ? ` · rolled ${game.state.roll}` : ''}`
+                  : game.state.roll
+                    ? `Rolled ${game.state.roll}`
+                    : 'Tap to roll'}
               </Text>
             </View>
           </GlassSurface>
@@ -258,13 +434,13 @@ export function MatchScreen() {
                 MATCH POT
               </Text>
               <Text variant="label-lg" color={role.secondaryFixed} numeric>
-                {thousands(liveMatch.pot)}
+                {thousands(isOnline ? game.pot : liveMatch.pot)}
               </Text>
             </View>
           </GlassSurface>
         </View>
 
-        <VoiceStrip players={liveMatch.players} turn={game.state.turn} standings={game.standings} />
+        <VoiceStrip players={matchPlayers} turn={game.state.turn} standings={game.standings} />
 
         {/* Board */}
         <View style={{ alignItems: 'center', paddingVertical: spacing.xs }}>
@@ -340,8 +516,8 @@ export function MatchScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Restart match"
-            onPress={game.restart}
+            accessibilityLabel={isOnline ? 'Leave match' : 'Restart match'}
+            onPress={isOnline ? handleLeave : game.restart}
             style={({ pressed }) => ({
               width: 64,
               height: 64,
@@ -352,9 +528,9 @@ export function MatchScreen() {
               transform: [{ scale: pressed ? 0.95 : 1 }],
             })}
           >
-            <Icon name="replay" size={20} color={faction.p2} />
+            <Icon name={isOnline ? 'logout' : 'replay'} size={20} color={faction.p2} />
             <Text variant="label-sm" color={role.onSurfaceVariant}>
-              RESTART
+              {isOnline ? 'LEAVE' : 'RESTART'}
             </Text>
           </Pressable>
 
@@ -418,6 +594,135 @@ export function MatchScreen() {
         </View>
       ) : null}
 
+      {/* Connection notices — joins, drops, bot takeovers, timeouts */}
+      {isOnline && online.notice ? (
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', top: HEADER_HEIGHT + spacing.sm, left: 0, right: 0, alignItems: 'center' }}
+        >
+          <Animated.View entering={FadeIn.duration(140)}>
+            <GlassSurface
+              over="containerHigh"
+              radius={radii.full}
+              style={{ paddingHorizontal: spacing.md, paddingVertical: 6 }}
+            >
+              <Text variant="label-sm" color={role.onSurface}>
+                {online.notice}
+              </Text>
+            </GlassSurface>
+          </Animated.View>
+        </View>
+      ) : null}
+
+      {/*
+        Waiting room. The server starts the match when every player has said
+        they are ready, so this overlay is the only way to say it — and the
+        room code is shown here because a private match is useless until the
+        host can pass it on.
+      */}
+      {isOnline && online.status === ConnectionStatus.lobby ? (
+        <Animated.View
+          entering={FadeIn.duration(240)}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: withAlpha(surface.void, 0.9),
+          }}
+        >
+          <GlassSurface
+            over="containerHigh"
+            style={{ padding: spacing.lg, gap: spacing.sm, width: 300 }}
+          >
+            <Text variant="label-sm" color={role.onSurfaceVariant}>
+              {mode === 'quick' ? 'QUICK MATCH' : 'PRIVATE MATCH'}
+            </Text>
+            <Text variant="display-hero" color={role.tertiary} uppercase>
+              {online.roomCode ?? '····'}
+            </Text>
+
+            {/*
+              A private room is useless until the code can leave the phone, so
+              copy and share sit directly under it. Quick match has a code too
+              but nobody needs to pass it on.
+            */}
+            {mode !== 'quick' && online.roomCode ? (
+              <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                <NeonButton
+                  label={copiedCode ? 'Copied!' : 'Copy code'}
+                  icon={copiedCode ? 'check' : 'content_copy'}
+                  variant="glass"
+                  size="sm"
+                  onPress={handleCopyCode}
+                />
+                <NeonButton
+                  label="Share"
+                  icon="share"
+                  variant="glass"
+                  size="sm"
+                  onPress={handleShareCode}
+                />
+              </View>
+            ) : null}
+
+            <Text variant="body-sm" color={role.onSurfaceVariant}>
+              {(online.players?.length ?? 0) < 2
+                ? mode === 'quick'
+                  ? 'Finding you an opponent — CPUs fill in if nobody arrives.'
+                  : 'Send the code to a friend. They tap Join with code.'
+                : `${online.players.filter((p) => p.ready).length} of ${online.players.length} ready`}
+            </Text>
+
+            {(online.players ?? []).map((p) => (
+              <View
+                key={p.seat}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}
+              >
+                <Avatar
+                  size={28}
+                  faction={PLAYERS[p.seat].faction}
+                  ringWidth={1.5}
+                  source={p.seat === online.mySeat ? user.avatar : undefined}
+                  fallback={(p.name ?? '?').slice(0, 2).toUpperCase()}
+                />
+                <Text variant="label-md" color={faction[PLAYERS[p.seat].faction]} style={{ flex: 1 }}>
+                  {p.name}
+                </Text>
+                <Icon
+                  name={p.ready ? 'check_circle' : 'hourglass_top'}
+                  size={16}
+                  color={p.ready ? faction.p1 : role.outline}
+                />
+              </View>
+            ))}
+
+            <NeonButton
+              label={iAmReady ? 'Waiting for others…' : "I'm ready"}
+              fullWidth
+              disabled={iAmReady}
+              onPress={online.ready}
+            />
+
+            {/*
+              The host's escape hatch. A private room never auto-starts, so
+              without this a host whose friend never shows up waits forever.
+              The server enforces host-only; this just decides who sees it.
+            */}
+            {online.isHost && mode !== 'quick' ? (
+              <NeonButton
+                label="Start with CPUs"
+                variant="glass"
+                fullWidth
+                onPress={online.startNow}
+              />
+            ) : null}
+
+            <NeonButton label="Leave" variant="glass" fullWidth onPress={handleLeave} />
+          </GlassSurface>
+        </Animated.View>
+      ) : null}
+
       {/* Victory overlay */}
       {game.isFinished ? (
         <Animated.View
@@ -432,20 +737,29 @@ export function MatchScreen() {
         >
           <GlassSurface over="containerHigh" style={{ padding: spacing.lg, alignItems: 'center', gap: spacing.sm, width: 280 }}>
             <Icon
-              name={game.state.winner === 0 ? 'workspace_premium' : 'skull'}
+              name={iWon ? 'workspace_premium' : 'skull'}
               size={40}
-              color={game.state.winner === 0 ? faction.p1 : faction.p3}
+              color={iWon ? faction.p1 : faction.p3}
             />
             <Text variant="display-hero" color={role.tertiary} uppercase>
-              {game.state.winner === 0 ? 'Victory' : 'Defeat'}
+              {iWon ? 'Victory' : 'Defeat'}
             </Text>
             <StatPill
-              label={`${PLAYERS[game.state.winner].name} wins`}
-              color={faction[PLAYERS[game.state.winner].faction]}
+              label={`${winnerName} wins`}
+              color={winnerPlayer ? faction[winnerPlayer.faction] : faction.p1}
               tinted
             />
             <NeonButton label="See results" fullWidth onPress={() => router.push(`/match/${id}/results`)} />
-            <NeonButton label="Play again" variant="glass" fullWidth onPress={game.restart} />
+            {isOnline ? (
+              <NeonButton
+                label="Find another match"
+                variant="glass"
+                fullWidth
+                onPress={() => router.replace({ pathname: `/match/${id}`, params: { mode: 'quick' } })}
+              />
+            ) : (
+              <NeonButton label="Play again" variant="glass" fullWidth onPress={game.restart} />
+            )}
           </GlassSurface>
         </Animated.View>
       ) : null}
