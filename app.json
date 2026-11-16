@@ -60,6 +60,15 @@
           "photosPermission": "Ludo After Dark uses photos you choose to generate your 3D cartoon avatar. Your photo is deleted once the avatar is made.",
           "cameraPermission": "Ludo After Dark uses the camera so you can take a photo for your 3D cartoon avatar. Your photo is deleted once the avatar is made."
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false
+          }
+        }
       ]
     ],
     "experiments": {

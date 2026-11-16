@@ -966,3 +966,37 @@ Mismatch them and the build produces the wrong artifact, or nothing.
 
 If it dies at R8 again, the next lever is `expo-build-properties` with
 `android.enableProguardInReleaseBuilds: false` — accepting the trade-off above.
+
+### Second failure: the memory fix caused a timeout
+
+`--no-parallel --max-workers=2` cured the OOM by making the build slow enough
+to be cancelled at the free tier's time limit instead. It stalled around 18m40s
+on `:shopify_react-native-skia:buildCMakeRelWithDebInfo[arm64-v8a]` — a step
+that is not slow by itself, only when nothing else may run beside it.
+
+Trading a memory failure for a time failure is not a fix. Three changes
+together, aimed at making the build genuinely small rather than merely
+sequential:
+
+| Change | Effect |
+|---|---|
+| R8 and resource shrinking off (`expo-build-properties`) | Removes the task that was killing the worker, and several minutes with it |
+| `-PreactNativeArchitectures=arm64-v8a` — one ABI | Halves the native build again. Every modern Android phone is 64-bit and Play permits a 64-bit-only app; `armeabi-v7a` serves devices a closed test will not have |
+| `--no-parallel --max-workers=2` removed | No longer needed once the memory peak is gone, and it was the direct cause of the timeout |
+
+**R8 was kept on through two attempts deliberately, and is now off
+deliberately.** A build that never completes teaches nobody anything. The
+trade-off is real and must be paid back: a minified build has to be exercised
+before production, because a missing ProGuard rule appears *only* in a minified
+build — and if the closed test never runs one, the first minified build is the
+production one, debugged by real users.
+
+To put it back for a release candidate, flip
+`enableProguardInReleaseBuilds` to `true` in `app.json` and run a preview build
+before promoting anything.
+
+### `resourceClass: "large"` is not available on this account
+
+Rejected outright: *"Large resource classes are only available for subscribers
+to Production, Enterprise, or On-Demand plans."* Removed. Worth checking plan
+entitlements before reaching for a paid build knob.
