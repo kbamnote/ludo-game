@@ -1000,3 +1000,37 @@ before promoting anything.
 Rejected outright: *"Large resource classes are only available for subscribers
 to Production, Enterprise, or On-Demand plans."* Removed. Worth checking plan
 entitlements before reaching for a paid build knob.
+
+### Corrected diagnosis: it was never R8
+
+Three builds, and the third disproved the second's conclusion:
+
+| # | Config | Result |
+|---|---|---|
+| 1 | 4 ABIs, R8 on, parallel | Daemon killed during `minifyReleaseWithR8` |
+| 2 | 2 ABIs, R8 on, `--no-parallel --max-workers=2` | **Never crashed.** Reached 18m42s, cancelled on the time limit |
+| 3 | 1 ABI, R8 **off**, parallel | Daemon killed during `reanimated` + `expo-modules-core` CMake, running together |
+
+Build 1 made R8 look guilty because that is where the kill landed. Build 3
+settled it: R8 was not even present and the daemon died anyway, this time
+between two concurrent C++ compiles — the two heaviest in the project.
+
+The real cause is **concurrent native compilation**. Gradle's `--max-workers`
+does not bound it: each CMake task hands off to ninja, which spawns its own
+compiler processes sized to the machine's CPU count. Two CMake tasks at once
+means two full fans of clang, and the worker runs out of memory. R8 was simply
+another large consumer that happened to overlap in build 1.
+
+Build 2 is the only configuration that has not crashed, so serialisation goes
+back — but with build 3's reductions kept, which build 2 did not have:
+
+- `--no-parallel --max-workers=2` — the thing that actually prevents the kill
+- one ABI, and no R8 — roughly half the work build 2 was grinding through, so
+  the point where it ran out of time should arrive much sooner
+- `GRADLE_OPTS=-Dorg.gradle.jvmargs=-Xmx3g` — the daemon reserves heap it no
+  longer needs now R8 is gone, and that reservation is memory clang cannot
+  have
+
+**Lesson worth keeping:** the task a build dies *in* is not necessarily the
+task that caused it. A memory kill lands on whoever asked for the next page,
+not on whoever is holding the most.
