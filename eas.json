@@ -16,7 +16,9 @@
       "distribution": "internal",
       "channel": "preview",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "resourceClass": "large",
+        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a"
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://ludo-game-backend-production-cff1aa99.up.railway.app"
@@ -26,7 +28,9 @@
       "autoIncrement": true,
       "channel": "production",
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "resourceClass": "large",
+        "gradleCommand": ":app:bundleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a"
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://ludo-game-backend-production-cff1aa99.up.railway.app"

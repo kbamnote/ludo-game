@@ -919,3 +919,46 @@ never reaches the bundle.
 
 The square `icon.png` is untouched — it is not masked, so the wordmark is fine
 there.
+
+### First EAS build failed: Gradle daemon killed during R8
+
+```
+> Task :app:minifyReleaseWithR8
+The message received from the daemon indicates that the daemon has disappeared.
+Gradle build daemon disappeared unexpectedly (it may have been killed or may have crashed)
+```
+
+No exception and no stack trace — the daemon log ends on ordinary Kotlin
+deprecation warnings. A JVM that dies mid-task leaving no error did not throw;
+it was killed, and on a build worker that means the OOM killer.
+
+The peak is visible in the task order: `minifyReleaseWithR8` was running while
+CMake built native libraries for **four** ABIs (arm64-v8a, armeabi-v7a, x86,
+x86_64) across worklets, screens and Skia. R8 is the most memory-hungry task in
+an Android release build, and it was competing with four parallel native
+compiles.
+
+Two changes in `eas.json`, on both `preview` and `production`:
+
+- **`resourceClass: "large"`** — more memory for the worker. Note this consumes
+  build credits faster.
+- **`-PreactNativeArchitectures=arm64-v8a,armeabi-v7a`** — halves the native
+  build. `-P` is used rather than an `ORG_GRADLE_PROJECT_` environment variable
+  because command-line project properties have unambiguous precedence over
+  `gradle.properties`, which is where the RN template sets all four.
+
+Dropping x86/x86_64 costs nothing for a phone test: those ABIs serve emulators
+and some x86 Chromebooks. Add them back before a production launch if
+Chromebook reach matters.
+
+**R8 was deliberately left on.** Disabling it would remove the proximate cause
+and make the build faster, but the closed-test build would then be the only one
+not minified — and a crash caused by a missing ProGuard rule would first appear
+in production, found by real users instead of testers.
+
+The `gradleCommand` task must match the profile's `buildType`:
+`:app:assembleRelease` for `apk`, `:app:bundleRelease` for `app-bundle`.
+Mismatch them and the build produces the wrong artifact, or nothing.
+
+If it dies at R8 again, the next lever is `expo-build-properties` with
+`android.enableProguardInReleaseBuilds: false` — accepting the trade-off above.
