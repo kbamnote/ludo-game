@@ -940,8 +940,12 @@ compiles.
 
 Two changes in `eas.json`, on both `preview` and `production`:
 
-- **`resourceClass: "large"`** — more memory for the worker. Note this consumes
-  build credits faster.
+- ~~`resourceClass: "large"`~~ — **rejected**: large resource classes need a paid
+  EAS plan, and this account is on the free tier. Removed. Replaced with
+  `--no-parallel --max-workers=2`, which attacks the actual cause: R8 was not
+  too big for the worker, it was running at the same time as CMake builds for
+  three native libraries. Serialising them cuts the peak instead of raising the
+  ceiling. The build is slower; it fits.
 - **`-PreactNativeArchitectures=arm64-v8a,armeabi-v7a`** — halves the native
   build. `-P` is used rather than an `ORG_GRADLE_PROJECT_` environment variable
   because command-line project properties have unambiguous precedence over
